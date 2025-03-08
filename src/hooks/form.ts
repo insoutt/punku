@@ -3,6 +3,7 @@ import axios, {
   type AxiosRequestConfig,
   type AxiosProgressEvent,
   type AxiosError,
+  type AxiosResponse,
 } from 'axios';
 
 export interface DataResponse<T> {
@@ -13,7 +14,8 @@ export interface RequestConfig<T, TForm extends FormDataType>
   extends AxiosRequestConfig {
   onStart?: () => void;
   onFinish?: () => void;
-  onSuccess?: (data: T) => void;
+  onValidationError?: (message: string) => void;
+  onSuccess?: (data: T, response: AxiosResponse<T>) => void;
   onError?: (error?: {
     errors?: Partial<Record<keyof TForm, string>>;
     error: AxiosError;
@@ -207,7 +209,7 @@ export function useForm<TForm extends FormDataType>(
       setWasSuccessful(true);
       setRecentlySuccessful(true);
       setTimeout(() => setRecentlySuccessful(false), 2000);
-      options?.onSuccess?.(response.data);
+      options?.onSuccess?.(response.data, response);
     } catch (error: unknown) {
       if (axios.isCancel(error)) {
         console.log('Request was canceled', error.message);
@@ -215,6 +217,14 @@ export function useForm<TForm extends FormDataType>(
         if (error.response?.data?.errors) {
           const errors = transformErrors(error.response?.data?.errors);
           setErrors(errors);
+
+          if(typeof options?.onValidationError === 'function') {
+            const validationMessage = Object.values(errors)[0];
+            if (typeof validationMessage === 'string') {
+              options?.onValidationError?.(validationMessage);
+            }
+          }
+
           options?.onError?.({
             errors,
             error,
