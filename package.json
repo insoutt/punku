@@ -1,0 +1,49 @@
+{
+  "main": "dist/index.js",
+  "name": "@insoutt/punku",
+  "license": "MIT",
+  "version": "1.0.0",
+  "description": "Simple React hook form for Laravel",
+  "keywords": [
+    "laravel",
+    "react",
+    "form",
+    "hook"
+  ],
+  "scripts": {
+    "dev": "vitest",
+    "build": "tsc",
+    "ci": "yarn build && yarn check-format && yarn check-exports && yarn test",
+    "format": "prettier --write .",
+    "check-format": "prettier --check .",
+    "check-exports": "attw --pack . --ignore-rules=cjs-resolves-to-esm",
+    "test": "vitest run",
+    "local-release": "changeset version && changeset publish",
+    "prepublishOnly": "npm run ci"
+  },
+  "homepage": "https://github.com/insoutt/punku",
+  "bugs": {
+    "url": "https://github.com/insoutt/punku/issues"
+  },
+  "author": "Matt Pocock <team@totaltypescript.com> (https://totaltypescript.com)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/insoutt/punku.git"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.17.4",
+    "@changesets/cli": "^2.28.1",
+    "@types/react": "^19.0.10",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.8"
+  },
+  "dependencies": {
+    "axios": "^1.8.2",
+    "react": "^19.0.0"
+  }
+}
