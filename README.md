@@ -123,14 +123,14 @@ const LoginComponent = () => {
 
 Each method (`get`, `post`, `put`, `patch`, `delete`) supports the following configuration options:
 
-| Option              | Description                                   | Type                                                                                            |
-| ------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `url`               | Request endpoint.                             | `string`                                                                                        |
-| `onStart`           | Called when request begins.                   | `() => void`                                                                                    |
-| `onFinish`          | Called after request completion.              | `() => void`                                                                                    |
-| `onSuccess`         | Called on successful response.                | `(data: TRequest, response?: AxiosResponse<TRequest>) => void`                                  |
+| Option              | Description                                                                                                          | Type                                                                                            |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `url`               | Request endpoint.                                                                                                    | `string`                                                                                        |
+| `onStart`           | Called when request begins.                                                                                          | `() => void`                                                                                    |
+| `onFinish`          | Called after request completion.                                                                                     | `() => void`                                                                                    |
+| `onSuccess`         | Called on successful response.                                                                                       | `(data: TRequest, response?: AxiosResponse<TRequest>) => void`                                  |
 | `onValidationError` | Called when server returns validation errors. If is declared and there is a validation message onError is not called | `(message: string) => void`                                                                     |
-| `onError`           | Called on request failure.                    | `(error?: { errors?: Partial<Record<keyof TForm, string>>; requestError: AxiosError }) => void` |
+| `onError`           | Called on request failure.                                                                                           | `(error?: { errors?: Partial<Record<keyof TForm, string>>; requestError: AxiosError }) => void` |
 
 ---
 

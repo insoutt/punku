@@ -197,8 +197,8 @@ export function useForm<TForm extends FormDataType>(
 
     options?.onStart?.();
 
-    const getParams = (method === 'get') ? data : undefined;
-    const requestData = (method !== 'get') ? data : undefined;    
+    const getParams = method === 'get' ? data : undefined;
+    const requestData = method !== 'get' ? data : undefined;
 
     try {
       const response = await axios({
