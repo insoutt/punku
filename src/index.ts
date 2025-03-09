@@ -1,1 +1,1 @@
-export { useForm } from './hooks/form.js';
+export { useForm, useForm as usePunku } from './hooks/form.js';
