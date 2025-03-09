@@ -196,11 +196,15 @@ export function useForm<TForm extends FormDataType>(
 
     options?.onStart?.();
 
+    const getParams = (method === 'get') ? data : undefined;
+    const requestData = (method !== 'get') ? data : undefined;
+
     try {
       const response = await axios({
         method,
         url,
-        data,
+        data: requestData,
+        params: getParams,
         signal: abortControllerRef.current.signal,
         onUploadProgress: (event) => setProgress(event),
         ...options,
@@ -221,7 +225,8 @@ export function useForm<TForm extends FormDataType>(
           if (typeof options?.onValidationError === 'function') {
             const validationMessage = Object.values(errors)[0];
             if (typeof validationMessage === 'string') {
-              options?.onValidationError?.(validationMessage);
+              options.onValidationError(validationMessage);
+              return;
             }
           }
 
