@@ -16,6 +16,7 @@ export interface RequestConfig<T, TForm extends FormDataType>
   onFinish?: () => void;
   onValidationError?: (message: string) => void;
   onSuccess?: (data: T, response: AxiosResponse<T>) => void;
+  onCancel?: () => void;
   onError?: (error?: {
     errors?: Partial<Record<keyof TForm, string>>;
     requestError?: AxiosError;
@@ -197,7 +198,7 @@ export function useForm<TForm extends FormDataType>(
     options?.onStart?.();
 
     const getParams = (method === 'get') ? data : undefined;
-    const requestData = (method !== 'get') ? data : undefined;
+    const requestData = (method !== 'get') ? data : undefined;    
 
     try {
       const response = await axios({
@@ -216,7 +217,8 @@ export function useForm<TForm extends FormDataType>(
       options?.onSuccess?.(response.data, response);
     } catch (error: unknown) {
       if (axios.isCancel(error)) {
-        console.log('Request was canceled', error.message);
+        options?.onCancel?.();
+        return;
       } else if (axios.isAxiosError(error)) {
         if (error.response?.data?.errors) {
           const errors = transformErrors(error.response?.data?.errors);
@@ -243,7 +245,6 @@ export function useForm<TForm extends FormDataType>(
         return;
       }
 
-      console.error('Unexpected error:', error);
       options?.onError?.();
     } finally {
       setProcessing(false);
