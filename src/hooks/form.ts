@@ -18,7 +18,7 @@ export interface RequestConfig<T, TForm extends FormDataType>
   onSuccess?: (data: T, response: AxiosResponse<T>) => void;
   onError?: (error?: {
     errors?: Partial<Record<keyof TForm, string>>;
-    error: AxiosError;
+    requestError?: AxiosError;
   }) => void;
 }
 
@@ -227,13 +227,13 @@ export function useForm<TForm extends FormDataType>(
 
           options?.onError?.({
             errors,
-            error,
+            requestError: error,
           });
           return;
         }
         setErrors({});
         options?.onError?.({
-          error,
+          requestError: error,
         });
         return;
       }
