@@ -2,13 +2,14 @@
   "main": "dist/index.js",
   "name": "@insoutt/punku",
   "license": "MIT",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Simple React hook form for Laravel",
   "keywords": [
     "laravel",
     "react",
     "form",
-    "hook"
+    "hook",
+    "inertia"
   ],
   "scripts": {
     "dev": "vitest",
