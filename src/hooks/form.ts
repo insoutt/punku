@@ -218,7 +218,7 @@ export function useForm<TForm extends FormDataType>(
           const errors = transformErrors(error.response?.data?.errors);
           setErrors(errors);
 
-          if(typeof options?.onValidationError === 'function') {
+          if (typeof options?.onValidationError === 'function') {
             const validationMessage = Object.values(errors)[0];
             if (typeof validationMessage === 'string') {
               options?.onValidationError?.(validationMessage);

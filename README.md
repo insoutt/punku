@@ -143,4 +143,3 @@ Each method (`get`, `post`, `put`, `patch`, `delete`) supports the following con
 ## License
 
 MIT License
-
