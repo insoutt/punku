@@ -1,10 +1,12 @@
 # @insoutt/punku
 
-`punku` is a simple yet powerful React hook form library designed to seamlessly integrate React applications with Laravel APIs. Inspired by the simplicity and functionality of [Inertia.js Form Helper for React](https://inertiajs.com/forms#react), `punku` helps streamline form handling, validation, and HTTP requests in your React components.
+`punku` is a React hook for easy form handling and validation when consuming Laravel APIs.
 
 ---
 
 ## Installation
+
+To add `punku` to your project, simply run:
 
 ```bash
 npm install @insoutt/punku
@@ -16,7 +18,7 @@ yarn add @insoutt/punku
 
 ## Usage
 
-Here's a basic example of how to use `useForm` with TypeScript:
+Here's a detailed example demonstrating how you can use the `useForm` hook effectively with TypeScript:
 
 ```tsx
 import React from 'react';
@@ -85,8 +87,6 @@ const LoginComponent = () => {
 
 ## API Reference
 
-For additional `useForm` hook examples, you can check out [Inertia.js Form Helper for React](https://inertiajs.com/forms#react). I implemented similar logic to work with any Laravel API or Laravel Response.
-
 ### useForm Hook
 
 #### Properties
@@ -131,6 +131,12 @@ Each method (`get`, `post`, `put`, `patch`, `delete`) supports the following con
 | `onSuccess`         | Called on successful response.                | `(data: TRequest, response?: AxiosResponse<TRequest>) => void`                                  |
 | `onValidationError` | Called when server returns validation errors. | `(message: string) => void`                                                                     |
 | `onError`           | Called on request failure.                    | `(error?: { errors?: Partial<Record<keyof TForm, string>>; requestError: AxiosError }) => void` |
+
+---
+
+## Inspiration
+
+`punku` was inspired by the [Inertia.js Form Helper for React](https://inertiajs.com/forms#react). While Inertia.js tightly integrates with Laravel's routing and server-side rendering, it has limitations making traditional API requests. `punku` addresses these limitations by providing a flexible solution designed specifically to interact directly with Laravel APIs, supporting a broader variety of React project structures and architectures.
 
 ---
 
