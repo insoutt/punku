@@ -1,5 +1,13 @@
 # @insoutt/chawpi
 
+## 1.0.2
+
+### Patch Changes
+
+- b418d36: - Add headers
+  - Add onCancel event
+  - Update Readme.md
+
 ## 1.0.1
 
 ### Patch Changes
