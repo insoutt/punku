@@ -207,6 +207,10 @@ export function useForm<TForm extends FormDataType>(
         data: requestData,
         params: getParams,
         signal: abortControllerRef.current.signal,
+        headers: {
+          'Accept': 'application/json',
+          'X-Punku': true,
+        },
         onUploadProgress: (event) => setProgress(event),
         ...options,
       });
