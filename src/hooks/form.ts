@@ -5,13 +5,20 @@ import axios, {
   type AxiosError,
   type AxiosResponse,
 } from 'axios';
+import { objectToFormData } from './formData.js';
 
 export interface DataResponse<T> {
   data: T;
 }
 
-export interface RequestConfig<T, TForm extends FormDataType>
-  extends AxiosRequestConfig {
+declare module 'axios' {
+  export interface AxiosProgressEvent {
+    percentage: number | undefined
+  }
+}
+
+export interface RequestConfig<T, TForm extends FormDataType> extends AxiosRequestConfig {
+  withFormData?: boolean
   onStart?: () => void;
   onFinish?: () => void;
   onValidationError?: (message: string) => void;
@@ -24,8 +31,7 @@ export interface RequestConfig<T, TForm extends FormDataType>
 }
 
 export type Progress = AxiosProgressEvent;
-type FormDataType = object;
-
+export type FormDataType = object;
 export interface FormProps<TForm extends FormDataType> {
   data: TForm;
   isDirty: boolean;
@@ -48,7 +54,7 @@ export interface FormProps<TForm extends FormDataType> {
   setError(errors: Record<keyof TForm, string>): void;
   get: <TRequest>(
     url: string,
-    options?: RequestConfig<TRequest, TForm>,
+    options?: Omit<RequestConfig<TRequest, TForm>, 'withFormData'>,
   ) => Promise<void>;
   patch: <TRequest>(
     url: string,
@@ -198,7 +204,11 @@ export function useForm<TForm extends FormDataType>(
     options?.onStart?.();
 
     const getParams = method === 'get' ? data : undefined;
-    const requestData = method !== 'get' ? data : undefined;
+    let requestData: TForm | FormData | undefined = method !== 'get' ? data : undefined;
+
+    if(options?.withFormData) {
+      requestData = objectToFormData(data)
+    }
 
     try {
       const response = await axios({
@@ -211,7 +221,22 @@ export function useForm<TForm extends FormDataType>(
           Accept: 'application/json',
           'X-Punku': true,
         },
-        onUploadProgress: (event) => setProgress(event),
+        onUploadProgress: (progressEvent) => {
+          // if (progressEvent.total) { 
+          //   console.log(progressEvent);
+            
+          //   progressEvent.percentage = Math.round(
+          //     (progressEvent.loaded * 100) / progressEvent.total
+          //   );
+          // }
+
+
+          progressEvent.percentage = progressEvent.progress ? Math.round(progressEvent.progress * 100) : 0
+          console.log('percent', progressEvent.percentage);
+          
+
+          setProgress(progressEvent)
+        },
         ...options,
       });
       setErrors({});
