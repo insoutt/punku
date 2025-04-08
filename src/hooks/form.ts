@@ -13,12 +13,13 @@ export interface DataResponse<T> {
 
 declare module 'axios' {
   export interface AxiosProgressEvent {
-    percentage: number | undefined
+    percentage: number | undefined;
   }
 }
 
-export interface RequestConfig<T, TForm extends FormDataType> extends AxiosRequestConfig {
-  withFormData?: boolean
+export interface RequestConfig<T, TForm extends FormDataType>
+  extends AxiosRequestConfig {
+  withFormData?: boolean;
   onStart?: () => void;
   onFinish?: () => void;
   onValidationError?: (message: string) => void;
@@ -204,10 +205,11 @@ export function useForm<TForm extends FormDataType>(
     options?.onStart?.();
 
     const getParams = method === 'get' ? data : undefined;
-    let requestData: TForm | FormData | undefined = method !== 'get' ? data : undefined;
+    let requestData: TForm | FormData | undefined =
+      method !== 'get' ? data : undefined;
 
-    if(options?.withFormData) {
-      requestData = objectToFormData(data)
+    if (options?.withFormData) {
+      requestData = objectToFormData(data);
     }
 
     try {
@@ -222,20 +224,20 @@ export function useForm<TForm extends FormDataType>(
           'X-Punku': true,
         },
         onUploadProgress: (progressEvent) => {
-          // if (progressEvent.total) { 
+          // if (progressEvent.total) {
           //   console.log(progressEvent);
-            
+
           //   progressEvent.percentage = Math.round(
           //     (progressEvent.loaded * 100) / progressEvent.total
           //   );
           // }
 
-
-          progressEvent.percentage = progressEvent.progress ? Math.round(progressEvent.progress * 100) : 0
+          progressEvent.percentage = progressEvent.progress
+            ? Math.round(progressEvent.progress * 100)
+            : 0;
           console.log('percent', progressEvent.percentage);
-          
 
-          setProgress(progressEvent)
+          setProgress(progressEvent);
         },
         ...options,
       });
