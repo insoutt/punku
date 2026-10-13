@@ -91,47 +91,47 @@ const LoginComponent = () => {
 
 #### Properties
 
-| Property             | Description                                             | Type                                   |
-| -------------------- | ------------------------------------------------------- | -------------------------------------- |
-| `data`               | Current form data.                                      | `TForm`                                |
-| `isDirty`            | Indicates if form data has changed from initial values. | `boolean`                              |
-| `errors`             | Form validation errors.                                 | `Partial<Record<keyof TForm, string>>` |
-| `hasErrors`          | Boolean indicating presence of validation errors.       | `boolean`                              |
-| `processing`         | Boolean indicating if form submission is in progress.   | `boolean`                              |
-| `progress`           | Upload progress event (if applicable).                  | `Progress \| null`                     |
-| `wasSuccessful`      | Indicates if the last submission was successful.        | `boolean`                              |
-| `recentlySuccessful` | Indicates if the submission was recently successful.    | `boolean`                              |
+| Property             | Description                                                                          | Type                                   |
+| -------------------- | ------------------------------------------------------------------------------------ | -------------------------------------- |
+| `data`               | Current form data.                                                                   | `TForm`                                |
+| `isDirty`            | Indicates if form data has changed from its defaults.                                | `boolean`                              |
+| `errors`             | Form validation errors.                                                              | `Partial<Record<keyof TForm, string>>` |
+| `hasErrors`          | Boolean indicating presence of validation errors.                                    | `boolean`                              |
+| `processing`         | Boolean indicating if form submission is in progress.                                | `boolean`                              |
+| `progress`           | Upload progress event with a `percentage` (0-100) while uploading, `null` otherwise. | `Progress \| null`                     |
+| `wasSuccessful`      | Indicates if the last submission was successful.                                     | `boolean`                              |
+| `recentlySuccessful` | Indicates if the submission was recently successful.                                 | `boolean`                              |
 
 #### Methods
 
-| Method                          | Description                                                 |
-| ------------------------------- | ----------------------------------------------------------- |
-| `setData(key, value)`           | Update specific form fields.                                |
-| `setData(newData)`              | Replace entire form data.                                   |
-| `setData(prevData => newData)`  | Update form data using previous state.                      |
-| `setDefaults()`                 | Reset form data to initial values.                          |
-| `setDefaults(key, value)`       | Set default value for a specific field.                     |
-| `setDefaults({ field: value })` | Set multiple default values.                                |
-| `reset(...fields)`              | Reset specific fields or entire form to defaults.           |
-| `clearErrors(...fields)`        | Clear validation errors from specific fields or all fields. |
-| `setError(field, message)`      | Set validation error for a specific field.                  |
-| `setError({ field: message })`  | Set multiple field errors.                                  |
-| `transform(callback)`           | Modify form data before sending.                            |
-| `cancel()`                      | Abort an ongoing HTTP request.                              |
+| Method                          | Description                                                          |
+| ------------------------------- | -------------------------------------------------------------------- |
+| `setData(key, value)`           | Update specific form fields.                                         |
+| `setData(newData)`              | Replace entire form data.                                            |
+| `setData(prevData => newData)`  | Update form data using previous state.                               |
+| `setDefaults()`                 | Use the current form data as the new defaults.                       |
+| `setDefaults(key, value)`       | Set the default value for a specific field (does not change `data`). |
+| `setDefaults({ field: value })` | Set multiple default values (does not change `data`).                |
+| `reset(...fields)`              | Reset specific fields or entire form to defaults.                    |
+| `clearErrors(...fields)`        | Clear validation errors from specific fields or all fields.          |
+| `setError(field, message)`      | Set validation error for a specific field.                           |
+| `setError({ field: message })`  | Set multiple field errors.                                           |
+| `transform(callback)`           | Modify the payload sent with the request, without changing `data`.   |
+| `cancel()`                      | Abort an ongoing HTTP request.                                       |
 
 #### HTTP Methods
 
 Each method (`get`, `post`, `put`, `patch`, `delete`) supports the following configuration options:
 
-| Option              | Description                                                                                                          | Type                                                                                            |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `url`               | Request endpoint.                                                                                                    | `string`                                                                                        |
-| `withFormData`      | Formats data as `FormData`. Required for file uploads.                                                               | `boolean`                                                                                       |
-| `onStart`           | Called when request begins.                                                                                          | `() => void`                                                                                    |
-| `onFinish`          | Called after request completion.                                                                                     | `() => void`                                                                                    |
-| `onSuccess`         | Called on successful response.                                                                                       | `(data: TRequest, response?: AxiosResponse<TRequest>) => void`                                  |
-| `onValidationError` | Called when server returns validation errors. If is declared and there is a validation message onError is not called | `(message: string) => void`                                                                     |
-| `onError`           | Called on request failure.                                                                                           | `(error?: { errors?: Partial<Record<keyof TForm, string>>; requestError: AxiosError }) => void` |
+| Option              | Description                                                                                                                                                                                                                   | Type                                                                                            |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `url`               | Request endpoint.                                                                                                                                                                                                             | `string`                                                                                        |
+| `withFormData`      | Formats data as `FormData`. Used automatically when the data contains a `File`, `Blob` or `FileList`. `put`/`patch`/`delete` requests sent as `FormData` are sent as `POST` with a `_method` field (Laravel method spoofing). | `boolean`                                                                                       |
+| `onStart`           | Called when request begins.                                                                                                                                                                                                   | `() => void`                                                                                    |
+| `onFinish`          | Called after request completion.                                                                                                                                                                                              | `() => void`                                                                                    |
+| `onSuccess`         | Called on successful response.                                                                                                                                                                                                | `(data: TRequest, response?: AxiosResponse<TRequest>) => void`                                  |
+| `onValidationError` | Called when server returns validation errors. If is declared and there is a validation message onError is not called                                                                                                          | `(message: string) => void`                                                                     |
+| `onError`           | Called on request failure.                                                                                                                                                                                                    | `(error?: { errors?: Partial<Record<keyof TForm, string>>; requestError: AxiosError }) => void` |
 
 ---
 

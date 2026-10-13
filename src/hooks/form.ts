@@ -1,20 +1,14 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import axios, {
   type AxiosRequestConfig,
   type AxiosProgressEvent,
   type AxiosError,
   type AxiosResponse,
 } from 'axios';
-import { objectToFormData } from './formData.js';
+import { hasFiles, objectToFormData } from './formData.js';
 
 export interface DataResponse<T> {
   data: T;
-}
-
-declare module 'axios' {
-  export interface AxiosProgressEvent {
-    percentage: number | undefined;
-  }
 }
 
 export interface RequestConfig<T, TForm extends FormDataType>
@@ -31,7 +25,7 @@ export interface RequestConfig<T, TForm extends FormDataType>
   }) => void;
 }
 
-export type Progress = AxiosProgressEvent;
+export type Progress = AxiosProgressEvent & { percentage: number | undefined };
 export type FormDataType = object;
 export interface FormProps<TForm extends FormDataType> {
   data: TForm;
@@ -52,7 +46,7 @@ export interface FormProps<TForm extends FormDataType> {
   reset: (...fields: (keyof TForm)[]) => void;
   clearErrors: (...fields: (keyof TForm)[]) => void;
   setError(field: keyof TForm, value: string): void;
-  setError(errors: Record<keyof TForm, string>): void;
+  setError(errors: Partial<Record<keyof TForm, string>>): void;
   get: <TRequest>(
     url: string,
     options?: Omit<RequestConfig<TRequest, TForm>, 'withFormData'>,
@@ -102,6 +96,9 @@ export function useForm<TForm extends FormDataType>(
   initialData?: TForm,
 ): FormProps<TForm> {
   const [data, setDataState] = useState<TForm>(initialData || ({} as TForm));
+  const [defaults, setDefaultsState] = useState<TForm>(
+    initialData || ({} as TForm),
+  );
   const [errors, setErrors] = useState<Partial<Record<keyof TForm, string>>>(
     {},
   );
@@ -110,8 +107,14 @@ export function useForm<TForm extends FormDataType>(
   const [recentlySuccessful, setRecentlySuccessful] = useState<boolean>(false);
   const [progress, setProgress] = useState<Progress | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const transformRef = useRef<(data: TForm) => object>((data) => data);
+  const recentlySuccessfulTimeoutRef = useRef<
+    ReturnType<typeof setTimeout> | undefined
+  >(undefined);
 
-  const isDirty = JSON.stringify(data) !== JSON.stringify(initialData || {});
+  useEffect(() => () => clearTimeout(recentlySuccessfulTimeoutRef.current), []);
+
+  const isDirty = JSON.stringify(data) !== JSON.stringify(defaults);
   const hasErrors = Object.keys(errors).length > 0;
 
   const transformErrors = (
@@ -146,24 +149,22 @@ export function useForm<TForm extends FormDataType>(
     value?: FormDataConvertible,
   ) => {
     if (typeof fieldOrFields === 'object') {
-      setDataState((prev) => ({ ...prev, ...fieldOrFields }));
+      setDefaultsState((prev) => ({ ...prev, ...fieldOrFields }));
     } else if (typeof fieldOrFields !== 'undefined') {
-      setData(fieldOrFields as keyof TForm, value as TForm[keyof TForm]);
+      setDefaultsState((prev) => ({ ...prev, [fieldOrFields]: value }));
     } else {
-      setDataState(initialData || ({} as TForm));
+      setDefaultsState(data);
     }
   };
 
   const reset = (...fields: (keyof TForm)[]) => {
     if (fields.length === 0) {
-      setDataState(initialData || ({} as TForm));
+      setDataState(defaults);
     } else {
       setDataState((prev) => {
         const newState = { ...prev };
         fields.forEach((field) => {
-          newState[field] = initialData
-            ? initialData[field]
-            : (undefined as TForm[keyof TForm]);
+          newState[field] = defaults[field];
         });
         return newState;
       });
@@ -183,7 +184,7 @@ export function useForm<TForm extends FormDataType>(
   };
 
   const setError = (
-    fieldOrErrors: keyof TForm | Record<keyof TForm, string>,
+    fieldOrErrors: keyof TForm | Partial<Record<keyof TForm, string>>,
     value?: string,
   ) => {
     if (typeof fieldOrErrors === 'object') {
@@ -198,88 +199,110 @@ export function useForm<TForm extends FormDataType>(
     url: string,
     options?: RequestConfig<TRequest, TForm>,
   ) => {
+    const {
+      withFormData,
+      onStart,
+      onFinish,
+      onSuccess,
+      onError,
+      onValidationError,
+      onCancel,
+      ...axiosOptions
+    } = options ?? {};
+
     setProcessing(true);
+    setWasSuccessful(false);
+    setRecentlySuccessful(false);
     abortControllerRef.current?.abort();
-    abortControllerRef.current = new AbortController();
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
 
-    options?.onStart?.();
+    onStart?.();
 
-    const getParams = method === 'get' ? data : undefined;
-    let requestData: TForm | FormData | undefined =
-      method !== 'get' ? data : undefined;
+    const payload = transformRef.current(data);
+    const getParams = method === 'get' ? payload : axiosOptions.params;
+    let requestMethod = method;
+    let requestData: object | undefined =
+      method !== 'get' ? payload : undefined;
 
-    if (options?.withFormData) {
-      requestData = objectToFormData(data);
+    if (method !== 'get' && (withFormData || hasFiles(payload))) {
+      const formData = objectToFormData(payload);
+      if (method !== 'post') {
+        formData.append('_method', method.toUpperCase());
+        requestMethod = 'post';
+      }
+      requestData = formData;
     }
 
     try {
       const response = await axios({
-        method,
+        ...axiosOptions,
+        method: requestMethod,
         url,
         data: requestData,
         params: getParams,
-        signal: abortControllerRef.current.signal,
+        signal: abortController.signal,
         headers: {
           Accept: 'application/json',
           'X-Punku': true,
+          ...axiosOptions.headers,
         },
         onUploadProgress: (progressEvent) => {
-          // if (progressEvent.total) {
-          //   console.log(progressEvent);
-
-          //   progressEvent.percentage = Math.round(
-          //     (progressEvent.loaded * 100) / progressEvent.total
-          //   );
-          // }
-
-          progressEvent.percentage = progressEvent.progress
-            ? Math.round(progressEvent.progress * 100)
-            : 0;
-          console.log('percent', progressEvent.percentage);
-
-          setProgress(progressEvent);
+          setProgress({
+            ...progressEvent,
+            percentage: progressEvent.progress
+              ? Math.round(progressEvent.progress * 100)
+              : 0,
+          });
+          axiosOptions.onUploadProgress?.(progressEvent);
         },
-        ...options,
       });
       setErrors({});
       setWasSuccessful(true);
       setRecentlySuccessful(true);
-      setTimeout(() => setRecentlySuccessful(false), 2000);
-      options?.onSuccess?.(response.data, response);
+      clearTimeout(recentlySuccessfulTimeoutRef.current);
+      recentlySuccessfulTimeoutRef.current = setTimeout(
+        () => setRecentlySuccessful(false),
+        2000,
+      );
+      onSuccess?.(response.data, response);
     } catch (error: unknown) {
       if (axios.isCancel(error)) {
-        options?.onCancel?.();
+        onCancel?.();
         return;
       } else if (axios.isAxiosError(error)) {
         if (error.response?.data?.errors) {
           const errors = transformErrors(error.response?.data?.errors);
           setErrors(errors);
 
-          if (typeof options?.onValidationError === 'function') {
+          if (typeof onValidationError === 'function') {
             const validationMessage = Object.values(errors)[0];
             if (typeof validationMessage === 'string') {
-              options.onValidationError(validationMessage);
+              onValidationError(validationMessage);
               return;
             }
           }
 
-          options?.onError?.({
+          onError?.({
             errors,
             requestError: error,
           });
           return;
         }
         setErrors({});
-        options?.onError?.({
+        onError?.({
           requestError: error,
         });
         return;
       }
 
-      options?.onError?.();
+      onError?.();
     } finally {
-      setProcessing(false);
-      options?.onFinish?.();
+      if (abortControllerRef.current === abortController) {
+        setProcessing(false);
+        setProgress(null);
+      }
+      onFinish?.();
     }
   };
 
@@ -293,7 +316,9 @@ export function useForm<TForm extends FormDataType>(
     wasSuccessful,
     recentlySuccessful,
     setData,
-    transform: (callback) => setDataState(callback(data) as TForm),
+    transform: (callback) => {
+      transformRef.current = callback;
+    },
     setDefaults,
     reset,
     clearErrors,

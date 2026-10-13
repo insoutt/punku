@@ -1,5 +1,11 @@
 # @insoutt/chawpi
 
+## 1.1.0
+
+### Minor Changes
+
+- 177759c: Implement uploads
+
 ## 1.0.2
 
 ### Patch Changes
