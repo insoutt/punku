@@ -1,5 +1,6 @@
 {
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "name": "@insoutt/punku",
   "license": "MIT",
   "version": "1.1.0",
@@ -26,7 +27,7 @@
   "bugs": {
     "url": "https://github.com/insoutt/punku/issues"
   },
-  "author": "Matt Pocock <team@totaltypescript.com> (https://totaltypescript.com)",
+  "author": "insoutt <hi@elvisfernando.com> (https://elvisfernando.com)",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/insoutt/punku.git"
@@ -38,13 +39,20 @@
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.17.4",
     "@changesets/cli": "^2.28.1",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
     "@types/react": "^19.0.10",
+    "jsdom": "^26.1.0",
     "prettier": "^3.5.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
     "typescript": "^5.8.2",
     "vitest": "^3.0.8"
   },
   "dependencies": {
-    "axios": "^1.8.2",
-    "react": "^19.0.0"
+    "axios": "^1.8.2"
+  },
+  "peerDependencies": {
+    "react": ">=17"
   }
 }
