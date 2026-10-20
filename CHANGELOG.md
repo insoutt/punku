@@ -1,4 +1,4 @@
-# @insoutt/chawpi
+# @insoutt/punku
 
 ## 1.2.0
 
