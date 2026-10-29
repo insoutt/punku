@@ -260,22 +260,22 @@ export function useForm<TForm extends FormDataType>(
 
     onStart?.();
 
-    const payload = transformRef.current(dataRef.current);
-    const getParams = method === 'get' ? payload : axiosOptions.params;
-    let requestMethod = method;
-    let requestData: object | undefined =
-      method !== 'get' ? payload : undefined;
-
-    if (method !== 'get' && (withFormData || hasFiles(payload))) {
-      const formData = objectToFormData(payload);
-      if (method !== 'post') {
-        formData.append('_method', method.toUpperCase());
-        requestMethod = 'post';
-      }
-      requestData = formData;
-    }
-
     try {
+      const payload = transformRef.current(dataRef.current);
+      const getParams = method === 'get' ? payload : axiosOptions.params;
+      let requestMethod = method;
+      let requestData: object | undefined =
+        method !== 'get' ? payload : undefined;
+
+      if (method !== 'get' && (withFormData || hasFiles(payload))) {
+        const formData = objectToFormData(payload);
+        if (method !== 'post') {
+          formData.append('_method', method.toUpperCase());
+          requestMethod = 'post';
+        }
+        requestData = formData;
+      }
+
       const response = await axios({
         ...axiosOptions,
         method: requestMethod,

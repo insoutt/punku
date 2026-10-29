@@ -637,3 +637,28 @@ describe('fix 13: setError', () => {
     expect(result.current.errors).toEqual({ name: 'n', email: 'e' });
   });
 });
+
+describe('fix 14: throwing transform', () => {
+  it('resolves, clears processing and calls onError and onFinish', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const onError = vi.fn();
+    const onFinish = vi.fn();
+
+    act(() => {
+      result.current.transform(() => {
+        throw new Error('bad transform');
+      });
+    });
+    const promise = start(() =>
+      result.current.post('/u', { onError, onFinish }),
+    );
+
+    await act(async () => {
+      await expect(promise).resolves.toBeUndefined();
+    });
+    expect(result.current.processing).toBe(false);
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onFinish).toHaveBeenCalledOnce();
+    expect(requests).toHaveLength(0);
+  });
+});
