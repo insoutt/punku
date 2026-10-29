@@ -425,3 +425,215 @@ describe('fix 8: progress and success state', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 });
+
+describe('fix 9: data written in the same handler as submit', () => {
+  it('post sends data set in the same handler', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+
+    const promise = start(() => {
+      result.current.setData('name', 'b');
+      return result.current.post('/u');
+    });
+    expect(JSON.parse(lastRequest().config.data)).toEqual({ name: 'b' });
+
+    await settle(promise, () => lastRequest().resolve());
+  });
+
+  it('consecutive functional setData calls compose and are sent', async () => {
+    const { result } = renderHook(() => useForm({ count: 0 }));
+
+    const promise = start(() => {
+      result.current.setData('count', 5);
+      result.current.setData((prev) => ({ ...prev, count: prev.count + 1 }));
+      result.current.setData((prev) => ({ ...prev, count: prev.count + 1 }));
+      return result.current.post('/u');
+    });
+    expect(JSON.parse(lastRequest().config.data)).toEqual({ count: 7 });
+    expect(result.current.data).toEqual({ count: 7 });
+
+    await settle(promise, () => lastRequest().resolve());
+  });
+
+  it('setData(object) and reset(field) in the same handler are sent', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a', email: 'e' }));
+
+    const promise = start(() => {
+      result.current.setData({ name: 'b', email: 'f' });
+      result.current.reset('email');
+      return result.current.post('/u');
+    });
+    expect(JSON.parse(lastRequest().config.data)).toEqual({
+      name: 'b',
+      email: 'e',
+    });
+
+    await settle(promise, () => lastRequest().resolve());
+  });
+
+  it('reset() in the same handler is sent', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+
+    act(() => {
+      result.current.setData('name', 'b');
+    });
+    const promise = start(() => {
+      result.current.reset();
+      return result.current.post('/u');
+    });
+    expect(JSON.parse(lastRequest().config.data)).toEqual({ name: 'a' });
+
+    await settle(promise, () => lastRequest().resolve());
+  });
+
+  it('transform receives data set in the same handler', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+
+    const promise = start(() => {
+      result.current.transform((data) => ({ name: data.name + '!' }));
+      result.current.setData('name', 'b');
+      return result.current.get('/u');
+    });
+    expect(lastRequest().config.params).toEqual({ name: 'b!' });
+
+    await settle(promise, () => lastRequest().resolve());
+  });
+});
+
+describe('fix 10: defaults written in the same handler', () => {
+  it('setDefaults() uses data set in the same handler', () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+
+    act(() => {
+      result.current.setData('name', 'b');
+      result.current.setDefaults();
+    });
+    expect(result.current.isDirty).toBe(false);
+
+    act(() => {
+      result.current.setData('name', 'c');
+    });
+    act(() => {
+      result.current.reset();
+    });
+    expect(result.current.data).toEqual({ name: 'b' });
+  });
+
+  it('reset() uses defaults set in the same handler', () => {
+    const { result } = renderHook(() => useForm({ name: 'a', email: 'e' }));
+
+    act(() => {
+      result.current.setDefaults('name', 'z');
+      result.current.setDefaults({ email: 'f' });
+      result.current.reset();
+    });
+    expect(result.current.data).toEqual({ name: 'z', email: 'f' });
+  });
+
+  it('reset() in onSuccess uses defaults set while the request was in flight', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const form = result.current;
+
+    act(() => {
+      form.setData('name', 'b');
+    });
+    const promise = start(() =>
+      form.post('/u', { onSuccess: () => form.reset() }),
+    );
+    act(() => {
+      result.current.setDefaults('name', 'z');
+    });
+
+    await settle(promise, () => lastRequest().resolve());
+    expect(result.current.data).toEqual({ name: 'z' });
+  });
+});
+
+describe('fix 11: isDirty', () => {
+  it('detects a replaced file', () => {
+    const first = new File(['a'], 'a.png');
+    const { result } = renderHook(() =>
+      useForm<{ avatar: File }>({ avatar: first }),
+    );
+
+    act(() => {
+      result.current.setData('avatar', new File(['b'], 'b.png'));
+    });
+    expect(result.current.isDirty).toBe(true);
+
+    act(() => {
+      result.current.setData('avatar', first);
+    });
+    expect(result.current.isDirty).toBe(false);
+  });
+
+  it('compares plain objects, arrays and dates by value', () => {
+    const { result } = renderHook(() =>
+      useForm({ at: new Date(0), tags: ['x'], profile: { name: 'a' } }),
+    );
+
+    act(() => {
+      result.current.setData({
+        at: new Date(0),
+        tags: ['x'],
+        profile: { name: 'a' },
+      });
+    });
+    expect(result.current.isDirty).toBe(false);
+
+    act(() => {
+      result.current.setData('at', new Date(1));
+    });
+    expect(result.current.isDirty).toBe(true);
+  });
+});
+
+describe('fix 12: validation errors', () => {
+  it('treats a 422 with errors as validation', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const onValidationError = vi.fn();
+
+    const promise = start(() =>
+      result.current.post('/u', { onValidationError }),
+    );
+    await settle(promise, () =>
+      lastRequest().reject(422, { errors: { name: ['bad'] } }),
+    );
+
+    expect(result.current.errors).toEqual({ name: 'bad' });
+    expect(onValidationError).toHaveBeenCalledWith('bad');
+  });
+
+  it('treats a non-422 with errors as a request error', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const onValidationError = vi.fn();
+    const onError = vi.fn();
+
+    act(() => {
+      result.current.setError('name', 'old');
+    });
+    const promise = start(() =>
+      result.current.post('/u', { onValidationError, onError }),
+    );
+    await settle(promise, () =>
+      lastRequest().reject(500, { errors: { name: ['bad'] } }),
+    );
+
+    expect(result.current.errors).toEqual({});
+    expect(onValidationError).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith({
+      requestError: expect.any(AxiosError),
+    });
+  });
+});
+
+describe('fix 13: setError', () => {
+  it('setError(object) merges into existing errors', () => {
+    const { result } = renderHook(() => useForm({ name: '', email: '' }));
+
+    act(() => {
+      result.current.setError('name', 'n');
+      result.current.setError({ email: 'e' });
+    });
+    expect(result.current.errors).toEqual({ name: 'n', email: 'e' });
+  });
+});

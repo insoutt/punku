@@ -115,7 +115,7 @@ const LoginComponent = () => {
 | `reset(...fields)`              | Reset specific fields or entire form to defaults.                    |
 | `clearErrors(...fields)`        | Clear validation errors from specific fields or all fields.          |
 | `setError(field, message)`      | Set validation error for a specific field.                           |
-| `setError({ field: message })`  | Set multiple field errors.                                           |
+| `setError({ field: message })`  | Set multiple field errors, merged into the existing errors.          |
 | `transform(callback)`           | Modify the payload sent with the request, without changing `data`.   |
 | `cancel()`                      | Abort an ongoing HTTP request.                                       |
 
@@ -130,7 +130,7 @@ Each method (`get`, `post`, `put`, `patch`, `delete`) supports the following con
 | `onStart`           | Called when request begins.                                                                                                                                                                                                   | `() => void`                                                                                    |
 | `onFinish`          | Called after request completion.                                                                                                                                                                                              | `() => void`                                                                                    |
 | `onSuccess`         | Called on successful response.                                                                                                                                                                                                | `(data: TRequest, response?: AxiosResponse<TRequest>) => void`                                  |
-| `onValidationError` | Called when server returns validation errors. If is declared and there is a validation message onError is not called                                                                                                          | `(message: string) => void`                                                                     |
+| `onValidationError` | Called when server returns validation errors (a 422 response with `errors`). If is declared and there is a validation message onError is not called                                                                           | `(message: string) => void`                                                                     |
 | `onError`           | Called on request failure.                                                                                                                                                                                                    | `(error?: { errors?: Partial<Record<keyof TForm, string>>; requestError: AxiosError }) => void` |
 
 ---
