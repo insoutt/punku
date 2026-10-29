@@ -14,14 +14,25 @@ export interface DataResponse<T> {
 export interface RequestConfig<T, TForm extends FormDataType>
   extends AxiosRequestConfig {
   withFormData?: boolean;
+  onBefore?: () => boolean | void;
   onStart?: () => void;
+  onProgress?: (progress: Progress) => void;
   onFinish?: () => void;
-  onValidationError?: (message: string) => void;
+  onValidationError?: (
+    message: string,
+    validation: {
+      message?: string;
+      errors: Partial<Record<keyof TForm, string>>;
+    },
+  ) => void;
+  onHttpException?: (response: AxiosResponse) => void;
+  onNetworkError?: (error: AxiosError) => void;
   onSuccess?: (data: T, response: AxiosResponse<T>) => void;
   onCancel?: () => void;
   onError?: (error?: {
     errors?: Partial<Record<keyof TForm, string>>;
     requestError?: AxiosError;
+    message?: string;
   }) => void;
 }
 
@@ -45,28 +56,29 @@ export interface FormProps<TForm extends FormDataType> {
   setDefaults(fields: Partial<TForm>): void;
   reset: (...fields: (keyof TForm)[]) => void;
   clearErrors: (...fields: (keyof TForm)[]) => void;
+  resetAndClearErrors: (...fields: (keyof TForm)[]) => void;
   setError(field: keyof TForm, value: string): void;
   setError(errors: Partial<Record<keyof TForm, string>>): void;
   get: <TRequest>(
     url: string,
     options?: Omit<RequestConfig<TRequest, TForm>, 'withFormData'>,
-  ) => Promise<void>;
+  ) => Promise<TRequest | undefined>;
   patch: <TRequest>(
     url: string,
     options?: RequestConfig<TRequest, TForm>,
-  ) => Promise<void>;
+  ) => Promise<TRequest | undefined>;
   post: <TRequest>(
     url: string,
     options?: RequestConfig<TRequest, TForm>,
-  ) => Promise<void>;
+  ) => Promise<TRequest | undefined>;
   put: <TRequest>(
     url: string,
     options?: RequestConfig<TRequest, TForm>,
-  ) => Promise<void>;
+  ) => Promise<TRequest | undefined>;
   delete: <TRequest>(
     url: string,
     options?: RequestConfig<TRequest, TForm>,
-  ) => Promise<void>;
+  ) => Promise<TRequest | undefined>;
   cancel: () => void;
 }
 
@@ -144,8 +156,15 @@ export function useForm<TForm extends FormDataType>(
   const recentlySuccessfulTimeoutRef = useRef<
     ReturnType<typeof setTimeout> | undefined
   >(undefined);
+  const mountedRef = useRef(false);
 
-  useEffect(() => () => clearTimeout(recentlySuccessfulTimeoutRef.current), []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      clearTimeout(recentlySuccessfulTimeoutRef.current);
+    };
+  }, []);
 
   const isDirty = !isEqual(data, defaults);
   const hasErrors = Object.keys(errors).length > 0;
@@ -224,6 +243,11 @@ export function useForm<TForm extends FormDataType>(
     }
   };
 
+  const resetAndClearErrors = (...fields: (keyof TForm)[]) => {
+    reset(...fields);
+    clearErrors(...fields);
+  };
+
   const setError = (
     fieldOrErrors: keyof TForm | Partial<Record<keyof TForm, string>>,
     value?: string,
@@ -239,17 +263,23 @@ export function useForm<TForm extends FormDataType>(
     method: 'get' | 'patch' | 'post' | 'put' | 'delete',
     url: string,
     options?: RequestConfig<TRequest, TForm>,
-  ) => {
+  ): Promise<TRequest | undefined> => {
     const {
       withFormData,
+      onBefore,
       onStart,
+      onProgress,
       onFinish,
       onSuccess,
       onError,
       onValidationError,
+      onHttpException,
+      onNetworkError,
       onCancel,
       ...axiosOptions
     } = options ?? {};
+
+    if (onBefore?.() === false) return;
 
     setProcessing(true);
     setWasSuccessful(false);
@@ -289,24 +319,37 @@ export function useForm<TForm extends FormDataType>(
           ...axiosOptions.headers,
         },
         onUploadProgress: (progressEvent) => {
-          setProgress({
+          const progress = {
             ...progressEvent,
             percentage: progressEvent.progress
               ? Math.round(progressEvent.progress * 100)
               : 0,
-          });
+          };
+          setProgress(progress);
+          onProgress?.(progress);
           axiosOptions.onUploadProgress?.(progressEvent);
         },
       });
-      setErrors({});
-      setWasSuccessful(true);
-      setRecentlySuccessful(true);
-      clearTimeout(recentlySuccessfulTimeoutRef.current);
-      recentlySuccessfulTimeoutRef.current = setTimeout(
-        () => setRecentlySuccessful(false),
-        2000,
-      );
+      // A response held past an abort (e.g. by an interceptor) is a cancel.
+      if (abortController.signal.aborted) {
+        onCancel?.();
+        return;
+      }
+      if (
+        abortControllerRef.current === abortController &&
+        mountedRef.current
+      ) {
+        setErrors({});
+        setWasSuccessful(true);
+        setRecentlySuccessful(true);
+        clearTimeout(recentlySuccessfulTimeoutRef.current);
+        recentlySuccessfulTimeoutRef.current = setTimeout(
+          () => setRecentlySuccessful(false),
+          2000,
+        );
+      }
       onSuccess?.(response.data, response);
+      return response.data;
     } catch (error: unknown) {
       if (axios.isCancel(error)) {
         onCancel?.();
@@ -314,12 +357,13 @@ export function useForm<TForm extends FormDataType>(
       } else if (axios.isAxiosError(error)) {
         if (error.response?.status === 422 && error.response.data?.errors) {
           const errors = transformErrors(error.response?.data?.errors);
+          const message = error.response.data.message;
           setErrors(errors);
 
           if (typeof onValidationError === 'function') {
             const validationMessage = Object.values(errors)[0];
             if (typeof validationMessage === 'string') {
-              onValidationError(validationMessage);
+              onValidationError(validationMessage, { message, errors });
               return;
             }
           }
@@ -327,10 +371,16 @@ export function useForm<TForm extends FormDataType>(
           onError?.({
             errors,
             requestError: error,
+            message,
           });
           return;
         }
         setErrors({});
+        if (error.response) {
+          onHttpException?.(error.response);
+        } else {
+          onNetworkError?.(error);
+        }
         onError?.({
           requestError: error,
         });
@@ -363,6 +413,7 @@ export function useForm<TForm extends FormDataType>(
     setDefaults,
     reset,
     clearErrors,
+    resetAndClearErrors,
     setError,
     get: (url, options) => sendRequest('get', url, options),
     patch: (url, options) => sendRequest('patch', url, options),

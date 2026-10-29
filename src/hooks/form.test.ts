@@ -1,17 +1,29 @@
 import { act, renderHook } from '@testing-library/react';
+import { StrictMode } from 'react';
 import axios, {
   AxiosError,
   AxiosHeaders,
+  type AxiosAdapter,
   type AxiosProgressEvent,
+  type AxiosResponse,
   type InternalAxiosRequestConfig,
 } from 'axios';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from 'vitest';
 import { useForm } from './form.js';
 
 interface PendingRequest {
   config: InternalAxiosRequestConfig;
   resolve: (data?: unknown) => void;
   reject: (status: number, data: unknown) => void;
+  networkError: () => void;
 }
 
 let requests: PendingRequest[];
@@ -38,6 +50,8 @@ beforeEach(() => {
               config,
             }),
           ),
+        networkError: () =>
+          reject(new AxiosError('Network Error', 'ERR_NETWORK', config)),
       });
     });
 });
@@ -53,20 +67,22 @@ const headersOf = (config: InternalAxiosRequestConfig) =>
   AxiosHeaders.from(config.headers).toJSON();
 
 /** Starts a request inside act and returns its promise. */
-const start = (send: () => Promise<void>) => {
-  let promise!: Promise<void>;
+const start = <T>(send: () => Promise<T>) => {
+  let promise!: Promise<T>;
   act(() => {
     promise = send();
   });
   return promise;
 };
 
-/** Settles a request and waits for the hook to finish handling it. */
-const settle = async (promise: Promise<void>, settleFn: () => void) => {
+/** Settles a request, waits for the hook to finish handling it and returns what it resolved. */
+const settle = async <T>(promise: Promise<T>, settleFn: () => void) => {
+  let value!: T;
   await act(async () => {
     settleFn();
-    await promise;
+    value = await promise;
   });
+  return value;
 };
 
 describe('fix 2: Laravel method spoofing', () => {
@@ -258,6 +274,10 @@ describe('fix 7: request options', () => {
         onError: () => {},
         onValidationError: () => {},
         onCancel: () => {},
+        onBefore: () => {},
+        onProgress: () => {},
+        onHttpException: () => {},
+        onNetworkError: () => {},
       }),
     );
     const config = lastRequest().config as unknown as Record<string, unknown>;
@@ -270,6 +290,10 @@ describe('fix 7: request options', () => {
       'onError',
       'onValidationError',
       'onCancel',
+      'onBefore',
+      'onProgress',
+      'onHttpException',
+      'onNetworkError',
     ]) {
       expect(config).not.toHaveProperty(key);
     }
@@ -600,7 +624,7 @@ describe('fix 12: validation errors', () => {
     );
 
     expect(result.current.errors).toEqual({ name: 'bad' });
-    expect(onValidationError).toHaveBeenCalledWith('bad');
+    expect(onValidationError).toHaveBeenCalledWith('bad', expect.anything());
   });
 
   it('treats a non-422 with errors as a request error', async () => {
@@ -660,5 +684,583 @@ describe('fix 14: throwing transform', () => {
     expect(onError).toHaveBeenCalledOnce();
     expect(onFinish).toHaveBeenCalledOnce();
     expect(requests).toHaveLength(0);
+  });
+});
+
+/** Request callbacks that record their name into `calls`, in call order. */
+const track = (calls: string[]) => {
+  const record = (name: string) =>
+    vi.fn(() => {
+      calls.push(name);
+    });
+  return {
+    onBefore: record('onBefore'),
+    onStart: record('onStart'),
+    onHttpException: record('onHttpException'),
+    onNetworkError: record('onNetworkError'),
+    onValidationError: record('onValidationError'),
+    onError: record('onError'),
+    onCancel: record('onCancel'),
+    onSuccess: record('onSuccess'),
+    onFinish: record('onFinish'),
+  };
+};
+
+/**
+ * Holds every response in a response interceptor, which runs after axios's
+ * own abort check, until its release function is called.
+ */
+const holdResponses = () => {
+  const releases: (() => void)[] = [];
+  const id = axios.interceptors.response.use(
+    (response) =>
+      new Promise<AxiosResponse>((resolve) =>
+        releases.push(() => resolve(response)),
+      ),
+  );
+  onTestFinished(() => axios.interceptors.response.eject(id));
+  return releases;
+};
+
+describe('F1: request methods resolve the response data', () => {
+  it.each(['get', 'post', 'put', 'patch', 'delete'] as const)(
+    '%s resolves response.data on success',
+    async (method) => {
+      const { result } = renderHook(() => useForm({ name: 'a' }));
+
+      const promise = start(() => result.current[method]('/u'));
+      const value = await settle(promise, () =>
+        lastRequest().resolve({ id: 1 }),
+      );
+
+      expect(value).toEqual({ id: 1 });
+    },
+  );
+});
+
+describe('F5: callback matrix', () => {
+  it('onBefore returning false: only onBefore, nothing sent, resolves undefined', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const calls: string[] = [];
+    const onBefore = vi.fn(() => {
+      calls.push('onBefore');
+      return false;
+    });
+
+    const promise = start(() =>
+      result.current.post('/u', { ...track(calls), onBefore }),
+    );
+
+    await expect(promise).resolves.toBeUndefined();
+    expect(calls).toEqual(['onBefore']);
+    expect(requests).toHaveLength(0);
+  });
+
+  it('success: onBefore, onStart, onSuccess, onFinish; resolves the data', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const calls: string[] = [];
+    const callbacks = track(calls);
+
+    const promise = start(() => result.current.post('/u', callbacks));
+    const value = await settle(promise, () => lastRequest().resolve({ id: 1 }));
+
+    expect(calls).toEqual(['onBefore', 'onStart', 'onSuccess', 'onFinish']);
+    expect(callbacks.onSuccess).toHaveBeenCalledWith(
+      { id: 1 },
+      expect.objectContaining({ status: 200 }),
+    );
+    expect(value).toEqual({ id: 1 });
+  });
+
+  it("422 with errors and onValidationError: first message plus Laravel's { message, errors }; no onError", async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const calls: string[] = [];
+    const callbacks = track(calls);
+
+    const promise = start(() => result.current.post('/u', callbacks));
+    const value = await settle(promise, () =>
+      lastRequest().reject(422, {
+        message: 'The name is invalid.',
+        errors: { name: ['bad', 'worse'] },
+      }),
+    );
+
+    expect(calls).toEqual([
+      'onBefore',
+      'onStart',
+      'onValidationError',
+      'onFinish',
+    ]);
+    expect(callbacks.onValidationError).toHaveBeenCalledWith('bad', {
+      message: 'The name is invalid.',
+      errors: { name: 'bad' },
+    });
+    expect(result.current.errors).toEqual({ name: 'bad' });
+    expect(value).toBeUndefined();
+  });
+
+  it('422 with errors, no onValidationError: onError gets { errors, requestError, message }', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const calls: string[] = [];
+    const { onValidationError: _, ...callbacks } = track(calls);
+
+    const promise = start(() => result.current.post('/u', callbacks));
+    const value = await settle(promise, () =>
+      lastRequest().reject(422, {
+        message: 'The name is invalid.',
+        errors: { name: ['bad'] },
+      }),
+    );
+
+    expect(calls).toEqual(['onBefore', 'onStart', 'onError', 'onFinish']);
+    expect(callbacks.onError).toHaveBeenCalledWith({
+      errors: { name: 'bad' },
+      requestError: expect.any(AxiosError),
+      message: 'The name is invalid.',
+    });
+    expect(value).toBeUndefined();
+  });
+
+  it('422 with empty errors: validation path without a first message, so onError; no onHttpException', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const calls: string[] = [];
+    const callbacks = track(calls);
+
+    const promise = start(() => result.current.post('/u', callbacks));
+    const value = await settle(promise, () =>
+      lastRequest().reject(422, { message: 'Invalid.', errors: {} }),
+    );
+
+    expect(calls).toEqual(['onBefore', 'onStart', 'onError', 'onFinish']);
+    expect(callbacks.onError).toHaveBeenCalledWith({
+      errors: {},
+      requestError: expect.any(AxiosError),
+      message: 'Invalid.',
+    });
+    expect(value).toBeUndefined();
+  });
+
+  it('other HTTP status: onHttpException(response), then onError({ requestError })', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const calls: string[] = [];
+    const callbacks = track(calls);
+
+    const promise = start(() => result.current.post('/u', callbacks));
+    const value = await settle(promise, () =>
+      lastRequest().reject(500, { message: 'Server Error' }),
+    );
+
+    expect(calls).toEqual([
+      'onBefore',
+      'onStart',
+      'onHttpException',
+      'onError',
+      'onFinish',
+    ]);
+    expect(callbacks.onHttpException).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 500,
+        data: { message: 'Server Error' },
+      }),
+    );
+    expect(callbacks.onError).toHaveBeenCalledWith({
+      requestError: expect.any(AxiosError),
+    });
+    expect(value).toBeUndefined();
+  });
+
+  it('422 with a message only: an HTTP exception, errors cleared', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const calls: string[] = [];
+    const callbacks = track(calls);
+
+    act(() => {
+      result.current.setError('name', 'old');
+    });
+    const promise = start(() => result.current.post('/u', callbacks));
+    const value = await settle(promise, () =>
+      lastRequest().reject(422, { message: 'Invalid.' }),
+    );
+
+    expect(calls).toEqual([
+      'onBefore',
+      'onStart',
+      'onHttpException',
+      'onError',
+      'onFinish',
+    ]);
+    expect(callbacks.onHttpException).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 422, data: { message: 'Invalid.' } }),
+    );
+    expect(callbacks.onError).toHaveBeenCalledWith({
+      requestError: expect.any(AxiosError),
+    });
+    expect(result.current.errors).toEqual({});
+    expect(value).toBeUndefined();
+  });
+
+  it('network error: onNetworkError(error), then onError({ requestError })', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const calls: string[] = [];
+    const callbacks = track(calls);
+
+    const promise = start(() => result.current.post('/u', callbacks));
+    const value = await settle(promise, () => lastRequest().networkError());
+
+    expect(calls).toEqual([
+      'onBefore',
+      'onStart',
+      'onNetworkError',
+      'onError',
+      'onFinish',
+    ]);
+    const [error] = callbacks.onNetworkError.mock.calls[0] as unknown[];
+    expect(error).toBeInstanceOf(AxiosError);
+    expect((error as AxiosError).response).toBeUndefined();
+    expect(callbacks.onError).toHaveBeenCalledWith({ requestError: error });
+    expect(value).toBeUndefined();
+  });
+
+  it('other error (throwing transform): onError() without arguments', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const calls: string[] = [];
+    const callbacks = track(calls);
+
+    act(() => {
+      result.current.transform(() => {
+        throw new Error('bad transform');
+      });
+    });
+    const promise = start(() => result.current.post('/u', callbacks));
+    const value = await settle(promise, () => {});
+
+    expect(calls).toEqual(['onBefore', 'onStart', 'onError', 'onFinish']);
+    expect(callbacks.onError).toHaveBeenCalledWith();
+    expect(value).toBeUndefined();
+  });
+
+  it('onSuccess throwing: onSuccess, then onError() without arguments; resolves undefined', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const calls: string[] = [];
+    const callbacks = track(calls);
+    const onSuccess = vi.fn(() => {
+      calls.push('onSuccess');
+      throw new Error('bad onSuccess');
+    });
+
+    const promise = start(() =>
+      result.current.post('/u', { ...callbacks, onSuccess }),
+    );
+    const value = await settle(promise, () => lastRequest().resolve({ id: 1 }));
+
+    expect(calls).toEqual([
+      'onBefore',
+      'onStart',
+      'onSuccess',
+      'onError',
+      'onFinish',
+    ]);
+    expect(callbacks.onError).toHaveBeenCalledWith();
+    expect(value).toBeUndefined();
+  });
+
+  it('cancel(): onCancel, then onFinish; resolves undefined', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const calls: string[] = [];
+
+    const promise = start(() => result.current.post('/u', track(calls)));
+    const value = await settle(promise, () => result.current.cancel());
+
+    expect(calls).toEqual(['onBefore', 'onStart', 'onCancel', 'onFinish']);
+    expect(value).toBeUndefined();
+  });
+
+  it('aborted by a newer request: onCancel, then onFinish; resolves undefined', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const calls: string[] = [];
+
+    const first = start(() => result.current.post('/u', track(calls)));
+    const second = start(() => result.current.post('/u'));
+    const value = await settle(first, () => {});
+
+    expect(calls).toEqual(['onBefore', 'onStart', 'onCancel', 'onFinish']);
+    expect(value).toBeUndefined();
+
+    await settle(second, () => lastRequest().resolve());
+  });
+
+  it('aborted, then fulfilled (response held by an interceptor): onCancel, not onSuccess; resolves undefined', async () => {
+    const releases = holdResponses();
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const calls: string[] = [];
+
+    const promise = start(() => result.current.post('/u', track(calls)));
+    lastRequest().resolve({ id: 1 });
+    await vi.waitFor(() => expect(releases).toHaveLength(1));
+
+    act(() => {
+      result.current.cancel();
+    });
+    const value = await settle(promise, () => releases[0]!());
+
+    expect(calls).toEqual(['onBefore', 'onStart', 'onCancel', 'onFinish']);
+    expect(value).toBeUndefined();
+    expect(result.current.wasSuccessful).toBe(false);
+    expect(result.current.processing).toBe(false);
+  });
+
+  it('transformResponse calling cancel(): onCancel, not onSuccess; resolves undefined', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const calls: string[] = [];
+
+    const promise = start(() =>
+      result.current.post('/u', {
+        ...track(calls),
+        transformResponse: (data) => {
+          result.current.cancel();
+          return data;
+        },
+      }),
+    );
+    const value = await settle(promise, () => lastRequest().resolve({ id: 1 }));
+
+    expect(calls).toEqual(['onBefore', 'onStart', 'onCancel', 'onFinish']);
+    expect(value).toBeUndefined();
+    expect(result.current.wasSuccessful).toBe(false);
+  });
+});
+
+describe('request ownership and lifecycle', () => {
+  it('a response held past a newer request is a cancel and writes no success state', async () => {
+    const releases = holdResponses();
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const first = { onSuccess: vi.fn(), onCancel: vi.fn() };
+
+    const firstPromise = start(() => result.current.post('/u', first));
+    lastRequest().resolve({ id: 1 });
+    await vi.waitFor(() => expect(releases).toHaveLength(1));
+
+    const secondPromise = start(() => result.current.post('/u'));
+    act(() => {
+      result.current.setError('name', 'kept');
+    });
+    const value = await settle(firstPromise, () => releases[0]!());
+
+    expect(value).toBeUndefined();
+    expect(first.onSuccess).not.toHaveBeenCalled();
+    expect(first.onCancel).toHaveBeenCalledOnce();
+    expect(result.current.wasSuccessful).toBe(false);
+    expect(result.current.recentlySuccessful).toBe(false);
+    expect(result.current.errors).toEqual({ name: 'kept' });
+    expect(result.current.processing).toBe(true);
+
+    lastRequest().resolve({ id: 2 });
+    await vi.waitFor(() => expect(releases).toHaveLength(2));
+    expect(await settle(secondPromise, () => releases[1]!())).toEqual({
+      id: 2,
+    });
+    expect(result.current.wasSuccessful).toBe(true);
+    expect(result.current.processing).toBe(false);
+  });
+
+  it('a request started by an abort listener and replaced without being aborted writes no success state', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const adapter = axios.defaults.adapter as AxiosAdapter;
+    let third: Promise<unknown> | undefined;
+    // The abort listener on the first request's signal starts a third request
+    // while the second one is starting, before it takes ownership.
+    axios.defaults.adapter = (config) => {
+      if (config.url === '/first') {
+        config.signal?.addEventListener?.('abort', () => {
+          third = result.current.post('/third');
+        });
+      }
+      return adapter(config);
+    };
+    act(() => {
+      result.current.setError('name', 'kept');
+    });
+
+    const first = start(() => result.current.post('/first'));
+    const second = start(() => result.current.post('/second'));
+    await settle(first, () => {});
+
+    const thirdRequest = requests.find((r) => r.config.url === '/third')!;
+    expect(thirdRequest.config.signal?.aborted).toBe(false);
+    expect(await settle(third!, () => thirdRequest.resolve({ id: 3 }))).toEqual(
+      { id: 3 },
+    );
+    expect(result.current.wasSuccessful).toBe(false);
+    expect(result.current.recentlySuccessful).toBe(false);
+    expect(result.current.errors).toEqual({ name: 'kept' });
+
+    await settle(second, () => lastRequest().resolve());
+  });
+
+  it('unmounting during a request skips success-path writes (no timer scheduled)', async () => {
+    vi.useFakeTimers();
+    const { result, unmount } = renderHook(() => useForm({ name: 'a' }));
+    const onSuccess = vi.fn();
+
+    const promise = start(() => result.current.post('/u', { onSuccess }));
+    unmount();
+    const value = await settle(promise, () => lastRequest().resolve({ id: 1 }));
+
+    expect(vi.getTimerCount()).toBe(0);
+    expect(onSuccess).toHaveBeenCalledOnce();
+    expect(value).toEqual({ id: 1 });
+  });
+
+  it('success-path writes still happen under StrictMode', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }), {
+      wrapper: StrictMode,
+    });
+
+    const promise = start(() => result.current.post('/u'));
+    await settle(promise, () => lastRequest().resolve());
+
+    expect(result.current.wasSuccessful).toBe(true);
+    expect(result.current.recentlySuccessful).toBe(true);
+  });
+});
+
+describe('F5: onBefore', () => {
+  it('returning false does not abort the in-flight request', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const onSuccess = vi.fn();
+
+    const first = start(() => result.current.post('/u', { onSuccess }));
+    const second = start(() =>
+      result.current.post('/u', { onBefore: () => false }),
+    );
+
+    expect(requests).toHaveLength(1);
+    expect(lastRequest().config.signal?.aborted).toBe(false);
+    await expect(second).resolves.toBeUndefined();
+    expect(result.current.processing).toBe(true);
+
+    await settle(first, () => lastRequest().resolve({ id: 1 }));
+    expect(onSuccess).toHaveBeenCalledOnce();
+  });
+
+  it('returning false changes no state', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+
+    const first = start(() => result.current.post('/u'));
+    await settle(first, () => lastRequest().resolve());
+    act(() => {
+      result.current.setError('name', 'kept');
+    });
+
+    const second = start(() =>
+      result.current.post('/u', { onBefore: () => false }),
+    );
+    await act(async () => {
+      await second;
+    });
+
+    expect(result.current.processing).toBe(false);
+    expect(result.current.wasSuccessful).toBe(true);
+    expect(result.current.recentlySuccessful).toBe(true);
+    expect(result.current.errors).toEqual({ name: 'kept' });
+  });
+
+  it("returning false leaves an in-flight upload's progress unchanged", async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+
+    const first = start(() => result.current.post('/u'));
+    act(() => {
+      lastRequest().config.onUploadProgress!({
+        loaded: 1,
+        total: 2,
+        progress: 0.5,
+      } as AxiosProgressEvent);
+    });
+    const progress = result.current.progress;
+    expect(progress).not.toBeNull();
+
+    const second = start(() =>
+      result.current.post('/u', { onBefore: () => false }),
+    );
+    await act(async () => {
+      await second;
+    });
+
+    expect(result.current.progress).toBe(progress);
+    expect(lastRequest().config.signal?.aborted).toBe(false);
+    await settle(first, () => lastRequest().resolve());
+  });
+
+  it('runs before the in-flight request is aborted', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+
+    const first = start(() => result.current.post('/u'));
+    const { signal } = lastRequest().config;
+    let abortedInOnBefore: boolean | undefined;
+    const second = start(() =>
+      result.current.post('/u', {
+        onBefore: () => {
+          abortedInOnBefore = signal?.aborted;
+        },
+      }),
+    );
+
+    expect(abortedInOnBefore).toBe(false);
+    expect(signal?.aborted).toBe(true);
+    await settle(first, () => {});
+    await settle(second, () => lastRequest().resolve());
+  });
+});
+
+describe('F5: onProgress', () => {
+  it("receives punku's Progress; the axios onUploadProgress still fires", async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const onProgress = vi.fn();
+    const onUploadProgress = vi.fn();
+
+    const promise = start(() =>
+      result.current.post('/u', { onProgress, onUploadProgress }),
+    );
+    const event = { loaded: 1, total: 4, progress: 0.25, bytes: 1 };
+    act(() => {
+      lastRequest().config.onUploadProgress!(event as AxiosProgressEvent);
+    });
+
+    expect(onProgress).toHaveBeenCalledWith({ ...event, percentage: 25 });
+    expect(onUploadProgress).toHaveBeenCalledWith(event);
+
+    await settle(promise, () => lastRequest().resolve());
+  });
+});
+
+describe('F3: resetAndClearErrors', () => {
+  it('resets and clears only the given fields', () => {
+    const { result } = renderHook(() => useForm({ name: 'a', email: 'e' }));
+
+    act(() => {
+      result.current.setData({ name: 'b', email: 'f' });
+      result.current.setError({ name: 'n', email: 'm' });
+    });
+    act(() => {
+      result.current.resetAndClearErrors('name');
+    });
+
+    expect(result.current.data).toEqual({ name: 'a', email: 'f' });
+    expect(result.current.errors).toEqual({ email: 'm' });
+  });
+
+  it('with no fields, resets all data and clears all errors', () => {
+    const { result } = renderHook(() => useForm({ name: 'a', email: 'e' }));
+
+    act(() => {
+      result.current.setData({ name: 'b', email: 'f' });
+      result.current.setError({ name: 'n', email: 'm' });
+    });
+    act(() => {
+      result.current.resetAndClearErrors();
+    });
+
+    expect(result.current.data).toEqual({ name: 'a', email: 'e' });
+    expect(result.current.errors).toEqual({});
   });
 });
