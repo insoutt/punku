@@ -3,6 +3,7 @@ import { StrictMode } from 'react';
 import axios, {
   AxiosError,
   AxiosHeaders,
+  type AxiosAdapter,
   type AxiosProgressEvent,
   type AxiosResponse,
   type InternalAxiosRequestConfig,
@@ -1007,6 +1008,26 @@ describe('F5: callback matrix', () => {
     expect(result.current.wasSuccessful).toBe(false);
     expect(result.current.processing).toBe(false);
   });
+
+  it('transformResponse calling cancel(): onCancel, not onSuccess; resolves undefined', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const calls: string[] = [];
+
+    const promise = start(() =>
+      result.current.post('/u', {
+        ...track(calls),
+        transformResponse: (data) => {
+          result.current.cancel();
+          return data;
+        },
+      }),
+    );
+    const value = await settle(promise, () => lastRequest().resolve({ id: 1 }));
+
+    expect(calls).toEqual(['onBefore', 'onStart', 'onCancel', 'onFinish']);
+    expect(value).toBeUndefined();
+    expect(result.current.wasSuccessful).toBe(false);
+  });
 });
 
 describe('request ownership and lifecycle', () => {
@@ -1040,6 +1061,40 @@ describe('request ownership and lifecycle', () => {
     });
     expect(result.current.wasSuccessful).toBe(true);
     expect(result.current.processing).toBe(false);
+  });
+
+  it('a request started by an abort listener and replaced without being aborted writes no success state', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const adapter = axios.defaults.adapter as AxiosAdapter;
+    let third: Promise<unknown> | undefined;
+    // The abort listener on the first request's signal starts a third request
+    // while the second one is starting, before it takes ownership.
+    axios.defaults.adapter = (config) => {
+      if (config.url === '/first') {
+        config.signal?.addEventListener?.('abort', () => {
+          third = result.current.post('/third');
+        });
+      }
+      return adapter(config);
+    };
+    act(() => {
+      result.current.setError('name', 'kept');
+    });
+
+    const first = start(() => result.current.post('/first'));
+    const second = start(() => result.current.post('/second'));
+    await settle(first, () => {});
+
+    const thirdRequest = requests.find((r) => r.config.url === '/third')!;
+    expect(thirdRequest.config.signal?.aborted).toBe(false);
+    expect(await settle(third!, () => thirdRequest.resolve({ id: 3 }))).toEqual(
+      { id: 3 },
+    );
+    expect(result.current.wasSuccessful).toBe(false);
+    expect(result.current.recentlySuccessful).toBe(false);
+    expect(result.current.errors).toEqual({ name: 'kept' });
+
+    await settle(second, () => lastRequest().resolve());
   });
 
   it('unmounting during a request skips success-path writes (no timer scheduled)', async () => {
@@ -1108,6 +1163,32 @@ describe('F5: onBefore', () => {
     expect(result.current.wasSuccessful).toBe(true);
     expect(result.current.recentlySuccessful).toBe(true);
     expect(result.current.errors).toEqual({ name: 'kept' });
+  });
+
+  it("returning false leaves an in-flight upload's progress unchanged", async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+
+    const first = start(() => result.current.post('/u'));
+    act(() => {
+      lastRequest().config.onUploadProgress!({
+        loaded: 1,
+        total: 2,
+        progress: 0.5,
+      } as AxiosProgressEvent);
+    });
+    const progress = result.current.progress;
+    expect(progress).not.toBeNull();
+
+    const second = start(() =>
+      result.current.post('/u', { onBefore: () => false }),
+    );
+    await act(async () => {
+      await second;
+    });
+
+    expect(result.current.progress).toBe(progress);
+    expect(lastRequest().config.signal?.aborted).toBe(false);
+    await settle(first, () => lastRequest().resolve());
   });
 
   it('runs before the in-flight request is aborted', async () => {

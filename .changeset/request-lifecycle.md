@@ -11,7 +11,7 @@ Breaking changes:
 
 Additions:
 
-- Request methods resolve `response.data` on success and `undefined` on every other outcome (validation error, HTTP exception, network error, other error, cancel, `onBefore` returning `false`). They never reject.
+- Request methods resolve `response.data` on success and `undefined` on every other outcome (validation error, HTTP exception, network error, other error, cancel, `onBefore` returning `false`). They never reject because of the request's outcome; an exception thrown by one of your own callbacks (other than `onSuccess`, whose synchronous throw goes to `onError()` and resolves `undefined`) propagates and rejects it.
 - `resetAndClearErrors(...fields)`: `reset(...fields)` plus `clearErrors(...fields)`; with no fields, resets all data and clears all errors.
 - `onBefore()`: called before anything else; returning `false` sends nothing, doesn't abort the in-flight request and changes no state.
 - `onProgress(progress)`: called on each upload progress event with punku's `Progress` (with `percentage`). The axios `onUploadProgress` option still works.

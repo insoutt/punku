@@ -122,7 +122,7 @@ const LoginComponent = () => {
 
 #### HTTP Methods
 
-Each method (`get`, `post`, `put`, `patch`, `delete`) returns a promise that resolves with the response data on success and with `undefined` on any other outcome (validation error, HTTP exception, network error, other error, cancel, or `onBefore` returning `false`). It never rejects.
+Each method (`get`, `post`, `put`, `patch`, `delete`) returns a promise that resolves with the response data on success and with `undefined` on any other outcome (validation error, HTTP exception, network error, other error, cancel, or `onBefore` returning `false`). It never rejects because of the request's outcome; an exception thrown by one of your own callbacks (other than `onSuccess`, whose synchronous throw goes to `onError()` and resolves `undefined`) propagates and rejects it.
 
 ```tsx
 const user = await post<User>('/api/users');
