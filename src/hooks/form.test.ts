@@ -1264,3 +1264,152 @@ describe('F3: resetAndClearErrors', () => {
     expect(result.current.errors).toEqual({});
   });
 });
+
+describe('F4: allErrors', () => {
+  const rejectWithTwoMessages = () =>
+    lastRequest().reject(422, {
+      message: 'The name is invalid.',
+      errors: { name: ['a', 'b'] },
+    });
+
+  it('keeps every message per field with allErrors: true, the first without', async () => {
+    const all = renderHook(() =>
+      useForm({ name: '' }, { allErrors: true }),
+    ).result;
+    const first = renderHook(() => useForm({ name: '' })).result;
+
+    await settle(
+      start(() => all.current.post('/u')),
+      rejectWithTwoMessages,
+    );
+    await settle(
+      start(() => first.current.post('/u')),
+      rejectWithTwoMessages,
+    );
+
+    expect(all.current.errors).toEqual({ name: ['a', 'b'] });
+    expect(first.current.errors).toEqual({ name: 'a' });
+  });
+
+  it("onValidationError gets the first message and the mode's errors; no onError", async () => {
+    const all = renderHook(() =>
+      useForm({ name: '' }, { allErrors: true }),
+    ).result;
+    const first = renderHook(() => useForm({ name: '' })).result;
+    const allCallbacks = { onValidationError: vi.fn(), onError: vi.fn() };
+    const firstCallbacks = { onValidationError: vi.fn(), onError: vi.fn() };
+
+    await settle(
+      start(() => all.current.post('/u', allCallbacks)),
+      rejectWithTwoMessages,
+    );
+    await settle(
+      start(() => first.current.post('/u', firstCallbacks)),
+      rejectWithTwoMessages,
+    );
+
+    expect(allCallbacks.onValidationError).toHaveBeenCalledWith('a', {
+      message: 'The name is invalid.',
+      errors: { name: ['a', 'b'] },
+    });
+    expect(allCallbacks.onError).not.toHaveBeenCalled();
+    expect(firstCallbacks.onValidationError).toHaveBeenCalledWith('a', {
+      message: 'The name is invalid.',
+      errors: { name: 'a' },
+    });
+    expect(firstCallbacks.onError).not.toHaveBeenCalled();
+  });
+
+  it("onError gets the mode's errors", async () => {
+    const all = renderHook(() =>
+      useForm({ name: '' }, { allErrors: true }),
+    ).result;
+    const first = renderHook(() => useForm({ name: '' })).result;
+    const allOnError = vi.fn();
+    const firstOnError = vi.fn();
+
+    await settle(
+      start(() => all.current.post('/u', { onError: allOnError })),
+      rejectWithTwoMessages,
+    );
+    await settle(
+      start(() => first.current.post('/u', { onError: firstOnError })),
+      rejectWithTwoMessages,
+    );
+
+    expect(allOnError).toHaveBeenCalledWith({
+      errors: { name: ['a', 'b'] },
+      requestError: expect.any(AxiosError),
+      message: 'The name is invalid.',
+    });
+    expect(firstOnError).toHaveBeenCalledWith({
+      errors: { name: 'a' },
+      requestError: expect.any(AxiosError),
+      message: 'The name is invalid.',
+    });
+  });
+
+  it('setError, clearErrors, resetAndClearErrors and hasErrors work with arrays', async () => {
+    const { result } = renderHook(() =>
+      useForm({ name: '', email: '', age: '' }, { allErrors: true }),
+    );
+
+    await settle(
+      start(() => result.current.post('/u')),
+      rejectWithTwoMessages,
+    );
+    act(() => {
+      result.current.setError('email', ['e1', 'e2']);
+      result.current.setError({ age: ['g'] });
+    });
+    expect(result.current.errors).toEqual({
+      name: ['a', 'b'],
+      email: ['e1', 'e2'],
+      age: ['g'],
+    });
+    expect(result.current.hasErrors).toBe(true);
+
+    act(() => {
+      result.current.clearErrors('name');
+    });
+    expect(result.current.errors).toEqual({ email: ['e1', 'e2'], age: ['g'] });
+
+    act(() => {
+      result.current.resetAndClearErrors('email');
+    });
+    expect(result.current.errors).toEqual({ age: ['g'] });
+
+    act(() => {
+      result.current.clearErrors();
+    });
+    expect(result.current.errors).toEqual({});
+    expect(result.current.hasErrors).toBe(false);
+  });
+
+  it('the mode is fixed at mount: changing allErrors on rerender has no effect', async () => {
+    const all = renderHook(
+      ({ allErrors }) =>
+        useForm({ name: '' }, { allErrors } as { allErrors: true }),
+      { initialProps: { allErrors: true } },
+    );
+    const first = renderHook(
+      ({ allErrors }) =>
+        useForm({ name: '' }, { allErrors } as { allErrors: true }),
+      { initialProps: { allErrors: false } },
+    );
+    all.rerender({ allErrors: false });
+    first.rerender({ allErrors: true });
+
+    await settle(
+      start(() => all.result.current.post('/u')),
+      rejectWithTwoMessages,
+    );
+    await settle(
+      start(() => first.result.current.post('/u')),
+      rejectWithTwoMessages,
+    );
+
+    expect(all.result.current.errors).toEqual({ name: ['a', 'b'] });
+    expect(first.result.current.errors).toEqual({ name: 'a' });
+  });
+});

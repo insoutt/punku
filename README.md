@@ -89,6 +89,21 @@ const LoginComponent = () => {
 
 ### useForm Hook
 
+#### Options
+
+`useForm(initialData, options)` takes an optional second argument:
+
+| Option      | Description                                                                                                                                                                                                                                                                                          | Type   |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `allErrors` | Keep every validation message per field. `errors`, `setError` and the `errors` passed to `onError` and to `onValidationError`'s second argument use `string[]` instead of `string`. `onValidationError`'s first argument is still the first message. Without it, each field keeps its first message. | `true` |
+
+```tsx
+const form = useForm({ email: '' }, { allErrors: true });
+// after a 422: form.errors.email === ['The email field is required.', ...]
+```
+
+The mode is fixed when the component mounts: changing `allErrors` later has no effect. Only the literal `true` is accepted, so a plain `boolean` (or a non-`as const` options object) doesn't compile; with a dynamic flag, pick a branch yourself or use `as const`.
+
 #### Properties
 
 | Property             | Description                                                                          | Type                                   |
