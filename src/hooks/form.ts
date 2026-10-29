@@ -92,6 +92,36 @@ export type FormDataConvertible =
   | null
   | undefined;
 
+const isPlainObject = (value: unknown): value is Record<string, unknown> => {
+  if (typeof value !== 'object' || value === null) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+};
+
+// Plain objects and arrays compare by value, dates by time, anything else
+// (File, Blob, FileList, class instances) by identity.
+const isEqual = (a: unknown, b: unknown): boolean => {
+  if (Object.is(a, b)) return true;
+  if (a instanceof Date && b instanceof Date) {
+    return a.getTime() === b.getTime();
+  }
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((value, i) => isEqual(value, b[i]));
+  }
+  if (isPlainObject(a) && isPlainObject(b)) {
+    const keys = Object.keys(a);
+    return (
+      keys.length === Object.keys(b).length &&
+      keys.every(
+        (key) =>
+          Object.prototype.hasOwnProperty.call(b, key) &&
+          isEqual(a[key], b[key]),
+      )
+    );
+  }
+  return false;
+};
+
 export function useForm<TForm extends FormDataType>(
   initialData?: TForm,
 ): FormProps<TForm> {
@@ -102,6 +132,9 @@ export function useForm<TForm extends FormDataType>(
   const [errors, setErrors] = useState<Partial<Record<keyof TForm, string>>>(
     {},
   );
+  // Mirror data and defaults so calls in the same handler see each other's writes.
+  const dataRef = useRef(data);
+  const defaultsRef = useRef(defaults);
   const [processing, setProcessing] = useState<boolean>(false);
   const [wasSuccessful, setWasSuccessful] = useState<boolean>(false);
   const [recentlySuccessful, setRecentlySuccessful] = useState<boolean>(false);
@@ -114,7 +147,7 @@ export function useForm<TForm extends FormDataType>(
 
   useEffect(() => () => clearTimeout(recentlySuccessfulTimeoutRef.current), []);
 
-  const isDirty = JSON.stringify(data) !== JSON.stringify(defaults);
+  const isDirty = !isEqual(data, defaults);
   const hasErrors = Object.keys(errors).length > 0;
 
   const transformErrors = (
@@ -131,16 +164,26 @@ export function useForm<TForm extends FormDataType>(
     return formattedErrors;
   };
 
+  const commitData = (next: TForm) => {
+    dataRef.current = next;
+    setDataState(next);
+  };
+
+  const commitDefaults = (next: TForm) => {
+    defaultsRef.current = next;
+    setDefaultsState(next);
+  };
+
   const setData: FormProps<TForm>['setData'] = (
     keyOrData: any,
     value?: TForm[keyof TForm],
   ) => {
     if (typeof keyOrData === 'function') {
-      setDataState((prev) => keyOrData(prev));
+      commitData(keyOrData(dataRef.current));
     } else if (typeof keyOrData === 'object') {
-      setDataState(keyOrData);
+      commitData(keyOrData);
     } else {
-      setDataState((prev) => ({ ...prev, [keyOrData]: value }));
+      commitData({ ...dataRef.current, [keyOrData]: value });
     }
   };
 
@@ -149,25 +192,23 @@ export function useForm<TForm extends FormDataType>(
     value?: FormDataConvertible,
   ) => {
     if (typeof fieldOrFields === 'object') {
-      setDefaultsState((prev) => ({ ...prev, ...fieldOrFields }));
+      commitDefaults({ ...defaultsRef.current, ...fieldOrFields });
     } else if (typeof fieldOrFields !== 'undefined') {
-      setDefaultsState((prev) => ({ ...prev, [fieldOrFields]: value }));
+      commitDefaults({ ...defaultsRef.current, [fieldOrFields]: value });
     } else {
-      setDefaultsState(data);
+      commitDefaults(dataRef.current);
     }
   };
 
   const reset = (...fields: (keyof TForm)[]) => {
     if (fields.length === 0) {
-      setDataState(defaults);
+      commitData(defaultsRef.current);
     } else {
-      setDataState((prev) => {
-        const newState = { ...prev };
-        fields.forEach((field) => {
-          newState[field] = defaults[field];
-        });
-        return newState;
+      const newState = { ...dataRef.current };
+      fields.forEach((field) => {
+        newState[field] = defaultsRef.current[field];
       });
+      commitData(newState);
     }
   };
 
@@ -188,7 +229,7 @@ export function useForm<TForm extends FormDataType>(
     value?: string,
   ) => {
     if (typeof fieldOrErrors === 'object') {
-      setErrors(fieldOrErrors);
+      setErrors((prev) => ({ ...prev, ...fieldOrErrors }));
     } else {
       setErrors((prev) => ({ ...prev, [fieldOrErrors]: value }));
     }
@@ -219,22 +260,22 @@ export function useForm<TForm extends FormDataType>(
 
     onStart?.();
 
-    const payload = transformRef.current(data);
-    const getParams = method === 'get' ? payload : axiosOptions.params;
-    let requestMethod = method;
-    let requestData: object | undefined =
-      method !== 'get' ? payload : undefined;
-
-    if (method !== 'get' && (withFormData || hasFiles(payload))) {
-      const formData = objectToFormData(payload);
-      if (method !== 'post') {
-        formData.append('_method', method.toUpperCase());
-        requestMethod = 'post';
-      }
-      requestData = formData;
-    }
-
     try {
+      const payload = transformRef.current(dataRef.current);
+      const getParams = method === 'get' ? payload : axiosOptions.params;
+      let requestMethod = method;
+      let requestData: object | undefined =
+        method !== 'get' ? payload : undefined;
+
+      if (method !== 'get' && (withFormData || hasFiles(payload))) {
+        const formData = objectToFormData(payload);
+        if (method !== 'post') {
+          formData.append('_method', method.toUpperCase());
+          requestMethod = 'post';
+        }
+        requestData = formData;
+      }
+
       const response = await axios({
         ...axiosOptions,
         method: requestMethod,
@@ -271,7 +312,7 @@ export function useForm<TForm extends FormDataType>(
         onCancel?.();
         return;
       } else if (axios.isAxiosError(error)) {
-        if (error.response?.data?.errors) {
+        if (error.response?.status === 422 && error.response.data?.errors) {
           const errors = transformErrors(error.response?.data?.errors);
           setErrors(errors);
 
