@@ -11,8 +11,11 @@ export interface DataResponse<T> {
   data: T;
 }
 
-export interface RequestConfig<T, TForm extends FormDataType>
-  extends AxiosRequestConfig {
+export interface RequestConfig<
+  T,
+  TForm extends FormDataType,
+  TErrorValue = string,
+> extends AxiosRequestConfig {
   withFormData?: boolean;
   onBefore?: () => boolean | void;
   onStart?: () => void;
@@ -22,7 +25,7 @@ export interface RequestConfig<T, TForm extends FormDataType>
     message: string,
     validation: {
       message?: string;
-      errors: Partial<Record<keyof TForm, string>>;
+      errors: Partial<Record<keyof TForm, TErrorValue>>;
     },
   ) => void;
   onHttpException?: (response: AxiosResponse) => void;
@@ -30,7 +33,7 @@ export interface RequestConfig<T, TForm extends FormDataType>
   onSuccess?: (data: T, response: AxiosResponse<T>) => void;
   onCancel?: () => void;
   onError?: (error?: {
-    errors?: Partial<Record<keyof TForm, string>>;
+    errors?: Partial<Record<keyof TForm, TErrorValue>>;
     requestError?: AxiosError;
     message?: string;
   }) => void;
@@ -38,10 +41,10 @@ export interface RequestConfig<T, TForm extends FormDataType>
 
 export type Progress = AxiosProgressEvent & { percentage: number | undefined };
 export type FormDataType = object;
-export interface FormProps<TForm extends FormDataType> {
+export interface FormProps<TForm extends FormDataType, TErrorValue = string> {
   data: TForm;
   isDirty: boolean;
-  errors: Partial<Record<keyof TForm, string>>;
+  errors: Partial<Record<keyof TForm, TErrorValue>>;
   hasErrors: boolean;
   processing: boolean;
   progress: Progress | null;
@@ -57,27 +60,27 @@ export interface FormProps<TForm extends FormDataType> {
   reset: (...fields: (keyof TForm)[]) => void;
   clearErrors: (...fields: (keyof TForm)[]) => void;
   resetAndClearErrors: (...fields: (keyof TForm)[]) => void;
-  setError(field: keyof TForm, value: string): void;
-  setError(errors: Partial<Record<keyof TForm, string>>): void;
+  setError(field: keyof TForm, value: TErrorValue): void;
+  setError(errors: Partial<Record<keyof TForm, TErrorValue>>): void;
   get: <TRequest>(
     url: string,
-    options?: Omit<RequestConfig<TRequest, TForm>, 'withFormData'>,
+    options?: Omit<RequestConfig<TRequest, TForm, TErrorValue>, 'withFormData'>,
   ) => Promise<TRequest | undefined>;
   patch: <TRequest>(
     url: string,
-    options?: RequestConfig<TRequest, TForm>,
+    options?: RequestConfig<TRequest, TForm, TErrorValue>,
   ) => Promise<TRequest | undefined>;
   post: <TRequest>(
     url: string,
-    options?: RequestConfig<TRequest, TForm>,
+    options?: RequestConfig<TRequest, TForm, TErrorValue>,
   ) => Promise<TRequest | undefined>;
   put: <TRequest>(
     url: string,
-    options?: RequestConfig<TRequest, TForm>,
+    options?: RequestConfig<TRequest, TForm, TErrorValue>,
   ) => Promise<TRequest | undefined>;
   delete: <TRequest>(
     url: string,
-    options?: RequestConfig<TRequest, TForm>,
+    options?: RequestConfig<TRequest, TForm, TErrorValue>,
   ) => Promise<TRequest | undefined>;
   cancel: () => void;
 }
@@ -135,15 +138,26 @@ const isEqual = (a: unknown, b: unknown): boolean => {
 };
 
 export function useForm<TForm extends FormDataType>(
+  initialData: TForm | undefined,
+  options: { allErrors: true },
+): FormProps<TForm, string[]>;
+export function useForm<TForm extends FormDataType>(
   initialData?: TForm,
-): FormProps<TForm> {
+  options?: { allErrors?: false },
+): FormProps<TForm, string>;
+export function useForm<TForm extends FormDataType>(
+  initialData?: TForm,
+  options?: { allErrors?: boolean },
+): FormProps<TForm, string | string[]> {
   const [data, setDataState] = useState<TForm>(initialData || ({} as TForm));
   const [defaults, setDefaultsState] = useState<TForm>(
     initialData || ({} as TForm),
   );
-  const [errors, setErrors] = useState<Partial<Record<keyof TForm, string>>>(
-    {},
-  );
+  const [errors, setErrors] = useState<
+    Partial<Record<keyof TForm, string | string[]>>
+  >({});
+  // The errors shape is fixed at mount.
+  const allErrorsRef = useRef(options?.allErrors === true);
   // Mirror data and defaults so calls in the same handler see each other's writes.
   const dataRef = useRef(data);
   const defaultsRef = useRef(defaults);
@@ -171,7 +185,9 @@ export function useForm<TForm extends FormDataType>(
 
   const transformErrors = (
     errors: Record<keyof TForm, string[]>,
-  ): Partial<Record<keyof TForm, string>> => {
+  ): Partial<Record<keyof TForm, string | string[]>> => {
+    if (allErrorsRef.current) return errors;
+
     const formattedErrors: Partial<Record<keyof TForm, string>> = {};
 
     Object.entries(errors).forEach(([key, value]) => {
@@ -249,8 +265,10 @@ export function useForm<TForm extends FormDataType>(
   };
 
   const setError = (
-    fieldOrErrors: keyof TForm | Partial<Record<keyof TForm, string>>,
-    value?: string,
+    fieldOrErrors:
+      | keyof TForm
+      | Partial<Record<keyof TForm, string | string[]>>,
+    value?: string | string[],
   ) => {
     if (typeof fieldOrErrors === 'object') {
       setErrors((prev) => ({ ...prev, ...fieldOrErrors }));
@@ -262,7 +280,7 @@ export function useForm<TForm extends FormDataType>(
   const sendRequest = async <TRequest>(
     method: 'get' | 'patch' | 'post' | 'put' | 'delete',
     url: string,
-    options?: RequestConfig<TRequest, TForm>,
+    options?: RequestConfig<TRequest, TForm, string | string[]>,
   ): Promise<TRequest | undefined> => {
     const {
       withFormData,
@@ -361,7 +379,10 @@ export function useForm<TForm extends FormDataType>(
           setErrors(errors);
 
           if (typeof onValidationError === 'function') {
-            const validationMessage = Object.values(errors)[0];
+            const firstErrors = Object.values(errors)[0];
+            const validationMessage = Array.isArray(firstErrors)
+              ? firstErrors[0]
+              : firstErrors;
             if (typeof validationMessage === 'string') {
               onValidationError(validationMessage, { message, errors });
               return;
