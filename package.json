@@ -3,7 +3,7 @@
   "types": "dist/index.d.ts",
   "name": "@insoutt/punku",
   "license": "MIT",
-  "version": "1.2.1",
+  "version": "2.0.0",
   "description": "Simple React hook form for Laravel",
   "keywords": [
     "laravel",
