@@ -171,6 +171,9 @@ export function useForm<TForm extends FormDataType>(
     ReturnType<typeof setTimeout> | undefined
   >(undefined);
   const mountedRef = useRef(false);
+  // Bumped by every setDefaults(...) call, so a request can tell whether its
+  // onSuccess chose the defaults itself.
+  const setDefaultsCountRef = useRef(0);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -226,6 +229,7 @@ export function useForm<TForm extends FormDataType>(
     fieldOrFields?: keyof TForm | Partial<TForm>,
     value?: FormDataConvertible,
   ) => {
+    setDefaultsCountRef.current++;
     if (typeof fieldOrFields === 'object') {
       commitDefaults({ ...defaultsRef.current, ...fieldOrFields });
     } else if (typeof fieldOrFields !== 'undefined') {
@@ -366,7 +370,18 @@ export function useForm<TForm extends FormDataType>(
           2000,
         );
       }
+      const setDefaultsCount = setDefaultsCountRef.current;
       onSuccess?.(response.data, response);
+      // The saved data becomes the defaults, unless the request lost
+      // ownership or onSuccess called setDefaults(...).
+      if (
+        abortControllerRef.current === abortController &&
+        !abortController.signal.aborted &&
+        mountedRef.current &&
+        setDefaultsCountRef.current === setDefaultsCount
+      ) {
+        commitDefaults(dataRef.current);
+      }
       return response.data;
     } catch (error: unknown) {
       if (axios.isCancel(error)) {

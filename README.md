@@ -145,6 +145,19 @@ const user = await post<User>('/api/users');
 
 `undefined` doesn't mean failure when the server returns an empty 2xx body: use the callbacks to tell outcomes apart. A response that arrives after its request was aborted (by `cancel()` or a newer request) counts as a cancel. A custom axios `validateStatus` changes which responses count as a success (and which as a 422 validation error).
 
+After a successful request, the form data becomes the new defaults, so `isDirty` is `false` and a later `reset()` restores the saved values. The update runs right after `onSuccess` returns and uses the data at that moment, so changes `onSuccess` makes (`setData`, `reset`) are part of the new defaults. An edit made while the request was in flight is part of them too, so `isDirty` is `false` even though that edit was never sent. To choose other defaults, call `setDefaults(...)` in `onSuccess`: the update is then skipped. Failed, cancelled and aborted requests, and requests that finish after the component unmounted, leave the defaults unchanged, as does an `onSuccess` that throws.
+
+Only the synchronous part of an async `onSuccess` runs before the update. A `reset()` after an `await` resets to the new defaults, so call `reset()` before the first `await`:
+
+```tsx
+post('/api/posts', {
+  onSuccess: async () => {
+    reset(); // clears the form
+    await refreshPosts();
+  },
+});
+```
+
 Each method supports the following configuration options:
 
 | Option              | Description                                                                                                                                                                                                                   | Type                                                                                                              |
