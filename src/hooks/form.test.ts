@@ -840,7 +840,7 @@ describe('F5: callback matrix', () => {
     expect(value).toBeUndefined();
   });
 
-  it('other HTTP status: onHttpException(response), then onError({ requestError })', async () => {
+  it('other HTTP status: onHttpException(response), then onError({ requestError, message })', async () => {
     const { result } = renderHook(() => useForm({ name: 'a' }));
     const calls: string[] = [];
     const callbacks = track(calls);
@@ -865,8 +865,38 @@ describe('F5: callback matrix', () => {
     );
     expect(callbacks.onError).toHaveBeenCalledWith({
       requestError: expect.any(AxiosError),
+      message: 'Server Error',
     });
     expect(value).toBeUndefined();
+  });
+
+  it('403: onError gets the message', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const onError = vi.fn();
+
+    const promise = start(() => result.current.post('/u', { onError }));
+    await settle(promise, () =>
+      lastRequest().reject(403, { message: 'This action is unauthorized.' }),
+    );
+
+    expect(onError).toHaveBeenCalledWith({
+      requestError: expect.any(AxiosError),
+      message: 'This action is unauthorized.',
+    });
+  });
+
+  it.each([
+    ['a string body', 'Server Error'],
+    ['an empty object', {}],
+  ])('500 with %s: onError has no message key', async (_, data) => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+    const onError = vi.fn();
+
+    const promise = start(() => result.current.post('/u', { onError }));
+    await settle(promise, () => lastRequest().reject(500, data));
+
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onError.mock.calls[0]![0]).not.toHaveProperty('message');
   });
 
   it('422 with a message only: an HTTP exception, errors cleared', async () => {
@@ -894,6 +924,7 @@ describe('F5: callback matrix', () => {
     );
     expect(callbacks.onError).toHaveBeenCalledWith({
       requestError: expect.any(AxiosError),
+      message: 'Invalid.',
     });
     expect(result.current.errors).toEqual({});
     expect(value).toBeUndefined();

@@ -402,8 +402,10 @@ export function useForm<TForm extends FormDataType>(
         } else {
           onNetworkError?.(error);
         }
+        const message = error.response?.data?.message;
         onError?.({
           requestError: error,
+          ...(typeof message === 'string' && { message }),
         });
         return;
       }
