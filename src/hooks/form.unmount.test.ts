@@ -65,7 +65,9 @@ it('unmounting during a request leaves the defaults unchanged', async () => {
       resolve = () =>
         r({ data: {}, status: 200, statusText: 'OK', headers: {}, config });
     });
-  const { result, unmount } = renderHook(() => useForm({ name: 'a' }));
+  const { result, unmount } = renderHook(() =>
+    useForm({ name: 'a' }, { setDefaultsOnSuccess: true }),
+  );
 
   act(() => {
     result.current.setData('name', 'b');

@@ -93,9 +93,10 @@ const LoginComponent = () => {
 
 `useForm(initialData, options)` takes an optional second argument:
 
-| Option      | Description                                                                                                                                                                                                                                                                                          | Type   |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| `allErrors` | Keep every validation message per field. `errors`, `setError` and the `errors` passed to `onError` and to `onValidationError`'s second argument use `string[]` instead of `string`. `onValidationError`'s first argument is still the first message. Without it, each field keeps its first message. | `true` |
+| Option                 | Description                                                                                                                                                                                                                                                                                          | Type      |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| `allErrors`            | Keep every validation message per field. `errors`, `setError` and the `errors` passed to `onError` and to `onValidationError`'s second argument use `string[]` instead of `string`. `onValidationError`'s first argument is still the first message. Without it, each field keeps its first message. | `true`    |
+| `setDefaultsOnSuccess` | After a successful request, make the form data the new defaults. Off by default.                                                                                                                                                                                                                     | `boolean` |
 
 ```tsx
 const form = useForm({ email: '' }, { allErrors: true });
@@ -103,6 +104,27 @@ const form = useForm({ email: '' }, { allErrors: true });
 ```
 
 The mode is fixed when the component mounts: changing `allErrors` later has no effect. Only the literal `true` is accepted, so a plain `boolean` (or a non-`as const` options object) doesn't compile; with a dynamic flag, pick a branch yourself or use `as const`.
+
+With `setDefaultsOnSuccess: true`, the form data becomes the new defaults after a successful request, so `isDirty` is `false` and a later `reset()` restores the saved values. Without it, a request never changes the defaults.
+
+```tsx
+const form = useForm({ title: '' }, { setDefaultsOnSuccess: true });
+```
+
+The update runs right after `onSuccess` returns and uses the data at that moment, so changes `onSuccess` makes (`setData`, `reset`) are part of the new defaults. An edit made while the request was in flight is part of them too, so `isDirty` is `false` even though that edit was never sent. To choose other defaults, call `setDefaults(...)` in `onSuccess`: the update is then skipped. Failed, cancelled and aborted requests, and requests that finish after the component unmounted, leave the defaults unchanged, as does an `onSuccess` that throws.
+
+Only the synchronous part of an async `onSuccess` runs before the update. A `reset()` after an `await` resets to the new defaults, so call `reset()` before the first `await`:
+
+```tsx
+form.post('/api/posts', {
+  onSuccess: async () => {
+    form.reset(); // clears the form
+    await refreshPosts();
+  },
+});
+```
+
+Like `allErrors`, the option is read when the component mounts: changing `setDefaultsOnSuccess` later has no effect.
 
 #### Properties
 
@@ -144,19 +166,6 @@ const user = await post<User>('/api/users');
 ```
 
 `undefined` doesn't mean failure when the server returns an empty 2xx body: use the callbacks to tell outcomes apart. A response that arrives after its request was aborted (by `cancel()` or a newer request) counts as a cancel. A custom axios `validateStatus` changes which responses count as a success (and which as a 422 validation error).
-
-After a successful request, the form data becomes the new defaults, so `isDirty` is `false` and a later `reset()` restores the saved values. The update runs right after `onSuccess` returns and uses the data at that moment, so changes `onSuccess` makes (`setData`, `reset`) are part of the new defaults. An edit made while the request was in flight is part of them too, so `isDirty` is `false` even though that edit was never sent. To choose other defaults, call `setDefaults(...)` in `onSuccess`: the update is then skipped. Failed, cancelled and aborted requests, and requests that finish after the component unmounted, leave the defaults unchanged, as does an `onSuccess` that throws.
-
-Only the synchronous part of an async `onSuccess` runs before the update. A `reset()` after an `await` resets to the new defaults, so call `reset()` before the first `await`:
-
-```tsx
-post('/api/posts', {
-  onSuccess: async () => {
-    reset(); // clears the form
-    await refreshPosts();
-  },
-});
-```
 
 Each method supports the following configuration options:
 

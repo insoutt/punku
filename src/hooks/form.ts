@@ -139,15 +139,15 @@ const isEqual = (a: unknown, b: unknown): boolean => {
 
 export function useForm<TForm extends FormDataType>(
   initialData: TForm | undefined,
-  options: { allErrors: true },
+  options: { allErrors: true; setDefaultsOnSuccess?: boolean },
 ): FormProps<TForm, string[]>;
 export function useForm<TForm extends FormDataType>(
   initialData?: TForm,
-  options?: { allErrors?: false },
+  options?: { allErrors?: false; setDefaultsOnSuccess?: boolean },
 ): FormProps<TForm, string>;
 export function useForm<TForm extends FormDataType>(
   initialData?: TForm,
-  options?: { allErrors?: boolean },
+  options?: { allErrors?: boolean; setDefaultsOnSuccess?: boolean },
 ): FormProps<TForm, string | string[]> {
   const [data, setDataState] = useState<TForm>(initialData || ({} as TForm));
   const [defaults, setDefaultsState] = useState<TForm>(
@@ -158,6 +158,10 @@ export function useForm<TForm extends FormDataType>(
   >({});
   // The errors shape is fixed at mount.
   const allErrorsRef = useRef(options?.allErrors === true);
+  // Fixed at mount too.
+  const setDefaultsOnSuccessRef = useRef(
+    options?.setDefaultsOnSuccess === true,
+  );
   // Mirror data and defaults so calls in the same handler see each other's writes.
   const dataRef = useRef(data);
   const defaultsRef = useRef(defaults);
@@ -372,9 +376,10 @@ export function useForm<TForm extends FormDataType>(
       }
       const setDefaultsCount = setDefaultsCountRef.current;
       onSuccess?.(response.data, response);
-      // The saved data becomes the defaults, unless the request lost
-      // ownership or onSuccess called setDefaults(...).
+      // With setDefaultsOnSuccess, the saved data becomes the defaults, unless
+      // the request lost ownership or onSuccess called setDefaults(...).
       if (
+        setDefaultsOnSuccessRef.current &&
         abortControllerRef.current === abortController &&
         !abortController.signal.aborted &&
         mountedRef.current &&
