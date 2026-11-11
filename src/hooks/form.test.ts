@@ -1633,7 +1633,7 @@ describe('F2: defaults updated after a successful request', () => {
     expect(result.current.data).toEqual({ name: 'd' });
   });
 
-  it('setDefaults() while the request is pending does not suppress the update', async () => {
+  it("setDefaults(field, value) while the request is pending doesn't suppress the update", async () => {
     const { result } = renderHook(() =>
       useForm({ name: 'a' }, { setDefaultsOnSuccess: true }),
     );
