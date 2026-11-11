@@ -173,3 +173,33 @@ describe('F4: allErrors', () => {
     });
   });
 });
+
+describe('F2: setDefaultsOnSuccess', () => {
+  test('alone, or with allErrors false, gives string errors', () => {
+    expectTypeOf(
+      useForm({ name: '' }, { setDefaultsOnSuccess: true }).errors,
+    ).toEqualTypeOf<Partial<Record<'name', string>>>();
+    expectTypeOf(
+      useForm({ name: '' }, { allErrors: false, setDefaultsOnSuccess: true })
+        .errors,
+    ).toEqualTypeOf<Partial<Record<'name', string>>>();
+  });
+
+  test('with allErrors: true gives string[] errors', () => {
+    expectTypeOf(
+      useForm({ name: '' }, { allErrors: true, setDefaultsOnSuccess: true })
+        .errors,
+    ).toEqualTypeOf<Partial<Record<'name', string[]>>>();
+  });
+
+  test('a plain boolean is accepted', () => {
+    const setDefaultsOnSuccess = Math.random() > 0.5;
+
+    expectTypeOf(
+      useForm({ name: '' }, { setDefaultsOnSuccess }).errors,
+    ).toEqualTypeOf<Partial<Record<'name', string>>>();
+    expectTypeOf(
+      useForm({ name: '' }, { allErrors: true, setDefaultsOnSuccess }).errors,
+    ).toEqualTypeOf<Partial<Record<'name', string[]>>>();
+  });
+});

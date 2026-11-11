@@ -57,3 +57,33 @@ it('unmounting during a request skips the success-state writes', async () => {
   expect(writes).not.toContain(true);
   expect(writes).not.toContainEqual({});
 });
+
+it('unmounting during a request leaves the defaults unchanged', async () => {
+  let resolve!: () => void;
+  axios.defaults.adapter = (config) =>
+    new Promise<AxiosResponse>((r) => {
+      resolve = () =>
+        r({ data: {}, status: 200, statusText: 'OK', headers: {}, config });
+    });
+  const { result, unmount } = renderHook(() =>
+    useForm({ name: 'a' }, { setDefaultsOnSuccess: true }),
+  );
+
+  act(() => {
+    result.current.setData('name', 'b');
+  });
+  let promise!: Promise<unknown>;
+  act(() => {
+    promise = result.current.post('/u');
+  });
+
+  unmount();
+  writes.length = 0;
+  await act(async () => {
+    resolve();
+    await promise;
+  });
+
+  // No setDefaultsState({ name: 'b' }).
+  expect(writes).not.toContainEqual({ name: 'b' });
+});

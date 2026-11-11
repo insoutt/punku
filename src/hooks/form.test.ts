@@ -1413,3 +1413,433 @@ describe('F4: allErrors', () => {
     expect(first.result.current.errors).toEqual({ name: 'a' });
   });
 });
+
+describe('F2: defaults updated after a successful request', () => {
+  it('plain save: not dirty, and a later reset() restores the saved values', async () => {
+    const { result } = renderHook(() =>
+      useForm({ name: 'a' }, { setDefaultsOnSuccess: true }),
+    );
+
+    act(() => {
+      result.current.setData('name', 'b');
+    });
+    const promise = start(() => result.current.post('/u'));
+    await settle(promise, () => lastRequest().resolve());
+    expect(result.current.isDirty).toBe(false);
+
+    act(() => {
+      result.current.setData('name', 'c');
+    });
+    act(() => {
+      result.current.reset();
+    });
+    expect(result.current.data).toEqual({ name: 'b' });
+  });
+
+  it('edited while in flight: the edit becomes the defaults', async () => {
+    const { result } = renderHook(() =>
+      useForm({ name: '' }, { setDefaultsOnSuccess: true }),
+    );
+
+    act(() => {
+      result.current.setData('name', 'A');
+    });
+    const promise = start(() => result.current.post('/u'));
+    expect(JSON.parse(lastRequest().config.data)).toEqual({ name: 'A' });
+    act(() => {
+      result.current.setData('name', 'B');
+    });
+    await settle(promise, () => lastRequest().resolve());
+
+    expect(result.current.data).toEqual({ name: 'B' });
+    expect(result.current.isDirty).toBe(false);
+    act(() => {
+      result.current.setData('name', 'C');
+    });
+    act(() => {
+      result.current.reset();
+    });
+    expect(result.current.data).toEqual({ name: 'B' });
+  });
+
+  it("onSuccess: setData('password', ''): the defaults equal the resulting data", async () => {
+    const { result } = renderHook(() =>
+      useForm({ name: '', password: '' }, { setDefaultsOnSuccess: true }),
+    );
+
+    act(() => {
+      result.current.setData({ name: 'n', password: 'p' });
+    });
+    const promise = start(() =>
+      result.current.post('/u', {
+        onSuccess: () => result.current.setData('password', ''),
+      }),
+    );
+    await settle(promise, () => lastRequest().resolve());
+
+    expect(result.current.data).toEqual({ name: 'n', password: '' });
+    expect(result.current.isDirty).toBe(false);
+  });
+
+  it("onSuccess: reset('password'): the defaults equal the resulting data", async () => {
+    const { result } = renderHook(() =>
+      useForm({ name: 'a', password: 'x' }, { setDefaultsOnSuccess: true }),
+    );
+
+    act(() => {
+      result.current.setData({ name: 'b', password: 'p' });
+    });
+    const promise = start(() =>
+      result.current.post('/u', {
+        onSuccess: () => result.current.reset('password'),
+      }),
+    );
+    await settle(promise, () => lastRequest().resolve());
+
+    expect(result.current.data).toEqual({ name: 'b', password: 'x' });
+    expect(result.current.isDirty).toBe(false);
+  });
+
+  it('onSuccess: setData({ name }) dropping a key: the defaults equal the resulting data', async () => {
+    const { result } = renderHook(() =>
+      useForm<{ name: string; password?: string }>(
+        { name: 'a', password: 'x' },
+        { setDefaultsOnSuccess: true },
+      ),
+    );
+
+    act(() => {
+      result.current.setData({ name: 'b', password: 'p' });
+    });
+    const promise = start(() =>
+      result.current.post('/u', {
+        onSuccess: () => result.current.setData({ name: 'c' }),
+      }),
+    );
+    await settle(promise, () => lastRequest().resolve());
+
+    expect(result.current.data).toEqual({ name: 'c' });
+    expect(result.current.isDirty).toBe(false);
+    act(() => {
+      result.current.reset();
+    });
+    expect(result.current.data).toEqual({ name: 'c' });
+  });
+
+  it('onSuccess: reset(): back to the old defaults, not dirty', async () => {
+    const { result } = renderHook(() =>
+      useForm({ name: 'a' }, { setDefaultsOnSuccess: true }),
+    );
+
+    act(() => {
+      result.current.setData('name', 'b');
+    });
+    const promise = start(() =>
+      result.current.post('/u', { onSuccess: () => result.current.reset() }),
+    );
+    await settle(promise, () => lastRequest().resolve());
+
+    expect(result.current.data).toEqual({ name: 'a' });
+    expect(result.current.isDirty).toBe(false);
+  });
+
+  it.each([
+    [
+      'setDefaults() before an edit',
+      (form: ReturnType<typeof useForm<{ name: string }>>) => {
+        form.setDefaults();
+        form.setData('name', 'c');
+      },
+      { name: 'b' },
+    ],
+    [
+      "setDefaults('name', 'z')",
+      (form: ReturnType<typeof useForm<{ name: string }>>) =>
+        form.setDefaults('name', 'z'),
+      { name: 'z' },
+    ],
+    [
+      "setDefaults({ name: 'z' })",
+      (form: ReturnType<typeof useForm<{ name: string }>>) =>
+        form.setDefaults({ name: 'z' }),
+      { name: 'z' },
+    ],
+  ])('onSuccess: %s wins over the update', async (_, onSuccess, defaults) => {
+    const { result } = renderHook(() =>
+      useForm({ name: 'a' }, { setDefaultsOnSuccess: true }),
+    );
+
+    act(() => {
+      result.current.setData('name', 'b');
+    });
+    const promise = start(() =>
+      result.current.post('/u', { onSuccess: () => onSuccess(result.current) }),
+    );
+    await settle(promise, () => lastRequest().resolve());
+
+    expect(result.current.isDirty).toBe(true);
+    act(() => {
+      result.current.reset();
+    });
+    expect(result.current.data).toEqual(defaults);
+  });
+
+  it('onSuccess: cancel(): the defaults are unchanged', async () => {
+    const { result } = renderHook(() =>
+      useForm({ name: 'a' }, { setDefaultsOnSuccess: true }),
+    );
+
+    act(() => {
+      result.current.setData('name', 'b');
+    });
+    const promise = start(() =>
+      result.current.post('/u', { onSuccess: () => result.current.cancel() }),
+    );
+    await settle(promise, () => lastRequest().resolve());
+
+    expect(result.current.isDirty).toBe(true);
+    act(() => {
+      result.current.reset();
+    });
+    expect(result.current.data).toEqual({ name: 'a' });
+  });
+
+  it('a request started in onSuccess: only the nested one updates the defaults', async () => {
+    const { result } = renderHook(() =>
+      useForm({ name: 'a' }, { setDefaultsOnSuccess: true }),
+    );
+    let nested!: Promise<unknown>;
+
+    act(() => {
+      result.current.setData('name', 'b');
+    });
+    const outer = start(() =>
+      result.current.post('/u', {
+        onSuccess: () => {
+          result.current.setData('name', 'c');
+          nested = result.current.post('/n');
+        },
+      }),
+    );
+    await settle(outer, () => lastRequest().resolve());
+    expect(result.current.data).toEqual({ name: 'c' });
+    expect(result.current.isDirty).toBe(true);
+
+    act(() => {
+      result.current.setData('name', 'd');
+    });
+    await settle(nested, () => lastRequest().resolve());
+    expect(result.current.isDirty).toBe(false);
+    expect(result.current.data).toEqual({ name: 'd' });
+  });
+
+  it("setDefaults(field, value) while the request is pending doesn't suppress the update", async () => {
+    const { result } = renderHook(() =>
+      useForm({ name: 'a' }, { setDefaultsOnSuccess: true }),
+    );
+
+    act(() => {
+      result.current.setData('name', 'b');
+    });
+    const promise = start(() => result.current.post('/u'));
+    act(() => {
+      result.current.setDefaults('name', 'z');
+    });
+    await settle(promise, () => lastRequest().resolve());
+
+    expect(result.current.isDirty).toBe(false);
+    act(() => {
+      result.current.setData('name', 'c');
+    });
+    act(() => {
+      result.current.reset();
+    });
+    expect(result.current.data).toEqual({ name: 'b' });
+  });
+
+  it('async onSuccess: reset() after an await resets to the new defaults', async () => {
+    const { result } = renderHook(() =>
+      useForm({ name: 'a' }, { setDefaultsOnSuccess: true }),
+    );
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    act(() => {
+      result.current.setData('name', 'b');
+    });
+    const promise = start(() =>
+      result.current.post('/u', {
+        onSuccess: async () => {
+          await gate;
+          result.current.reset();
+        },
+      }),
+    );
+    act(() => {
+      result.current.setData('name', 'c');
+    });
+    await settle(promise, () => lastRequest().resolve());
+    act(() => {
+      result.current.setData('name', 'd');
+    });
+    await act(async () => {
+      release();
+      await gate;
+    });
+
+    expect(result.current.data).toEqual({ name: 'c' });
+  });
+
+  it('onSuccess throwing: the defaults are unchanged, onError(), resolves undefined', async () => {
+    const { result } = renderHook(() =>
+      useForm({ name: 'a' }, { setDefaultsOnSuccess: true }),
+    );
+    const onError = vi.fn();
+
+    act(() => {
+      result.current.setData('name', 'b');
+    });
+    const promise = start(() =>
+      result.current.post('/u', {
+        onSuccess: () => {
+          throw new Error('bad onSuccess');
+        },
+        onError,
+      }),
+    );
+    const value = await settle(promise, () => lastRequest().resolve({ id: 1 }));
+
+    expect(value).toBeUndefined();
+    expect(onError).toHaveBeenCalledWith();
+    expect(result.current.isDirty).toBe(true);
+    act(() => {
+      result.current.reset();
+    });
+    expect(result.current.data).toEqual({ name: 'a' });
+  });
+
+  it.each([
+    ['422', (r: PendingRequest) => r.reject(422, { errors: { name: ['x'] } })],
+    ['500', (r: PendingRequest) => r.reject(500, {})],
+    ['network error', (r: PendingRequest) => r.networkError()],
+  ])('a failed request (%s) leaves the defaults unchanged', async (_, fail) => {
+    const { result } = renderHook(() =>
+      useForm({ name: 'a' }, { setDefaultsOnSuccess: true }),
+    );
+
+    act(() => {
+      result.current.setData('name', 'b');
+    });
+    const promise = start(() => result.current.post('/u'));
+    await settle(promise, () => fail(lastRequest()));
+
+    expect(result.current.isDirty).toBe(true);
+  });
+
+  it('a cancelled request leaves the defaults unchanged', async () => {
+    const { result } = renderHook(() =>
+      useForm({ name: 'a' }, { setDefaultsOnSuccess: true }),
+    );
+
+    act(() => {
+      result.current.setData('name', 'b');
+    });
+    const promise = start(() => result.current.post('/u'));
+    await settle(promise, () => result.current.cancel());
+
+    expect(result.current.isDirty).toBe(true);
+  });
+
+  it('a request aborted by a newer one leaves the defaults unchanged', async () => {
+    const { result } = renderHook(() =>
+      useForm({ name: 'a' }, { setDefaultsOnSuccess: true }),
+    );
+
+    act(() => {
+      result.current.setData('name', 'b');
+    });
+    const first = start(() => result.current.post('/first'));
+    const second = start(() => result.current.post('/second'));
+    await settle(first, () => {});
+    expect(result.current.isDirty).toBe(true);
+
+    await settle(second, () => lastRequest().resolve());
+  });
+
+  it('a request replaced without being aborted leaves the defaults unchanged', async () => {
+    const { result } = renderHook(() =>
+      useForm({ name: 'a' }, { setDefaultsOnSuccess: true }),
+    );
+    const adapter = axios.defaults.adapter as AxiosAdapter;
+    let third: Promise<unknown> | undefined;
+    // The abort listener on the first request's signal starts a third request
+    // while the second one is starting, before it takes ownership.
+    axios.defaults.adapter = (config) => {
+      if (config.url === '/first') {
+        config.signal?.addEventListener?.('abort', () => {
+          third = result.current.post('/third');
+        });
+      }
+      return adapter(config);
+    };
+
+    act(() => {
+      result.current.setData('name', 'b');
+    });
+    const first = start(() => result.current.post('/first'));
+    const second = start(() => result.current.post('/second'));
+    await settle(first, () => {});
+
+    const thirdRequest = requests.find((r) => r.config.url === '/third')!;
+    await settle(third!, () => thirdRequest.resolve());
+    expect(result.current.isDirty).toBe(true);
+
+    await settle(second, () => lastRequest().resolve());
+  });
+
+  it('without setDefaultsOnSuccess, a successful request leaves the defaults unchanged', async () => {
+    const { result } = renderHook(() => useForm({ name: 'a' }));
+
+    act(() => {
+      result.current.setData('name', 'b');
+    });
+    const promise = start(() => result.current.post('/u'));
+    await settle(promise, () => lastRequest().resolve());
+
+    expect(result.current.isDirty).toBe(true);
+    act(() => {
+      result.current.reset();
+    });
+    expect(result.current.data).toEqual({ name: 'a' });
+  });
+
+  it('the option is fixed at mount: changing setDefaultsOnSuccess on rerender has no effect', async () => {
+    const on = renderHook(
+      ({ setDefaultsOnSuccess }) =>
+        useForm({ name: 'a' }, { setDefaultsOnSuccess }),
+      { initialProps: { setDefaultsOnSuccess: true } },
+    );
+    const off = renderHook(
+      ({ setDefaultsOnSuccess }) =>
+        useForm({ name: 'a' }, { setDefaultsOnSuccess }),
+      { initialProps: { setDefaultsOnSuccess: false } },
+    );
+    on.rerender({ setDefaultsOnSuccess: false });
+    off.rerender({ setDefaultsOnSuccess: true });
+
+    for (const { result } of [on, off]) {
+      act(() => {
+        result.current.setData('name', 'b');
+      });
+      await settle(
+        start(() => result.current.post('/u')),
+        () => lastRequest().resolve(),
+      );
+    }
+
+    expect(on.result.current.isDirty).toBe(false);
+    expect(off.result.current.isDirty).toBe(true);
+  });
+});
